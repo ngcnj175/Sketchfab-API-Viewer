@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sketchfab API Viewer</title>
+    <title>Sketchfab VR Viewer</title>
     <style>
         body {
             margin: 0;
@@ -78,6 +78,15 @@
             font-size: 13px;
             line-height: 1.6;
         }
+        .warning {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(255,100,0,0.2);
+            border: 1px solid rgba(255,100,0,0.5);
+            border-radius: 5px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
         #viewer {
             width: 100%;
             height: 100vh;
@@ -87,75 +96,64 @@
         #viewer.active {
             display: block;
         }
-        .controls {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.8);
-            padding: 15px;
-            border-radius: 10px;
-            display: none;
-            z-index: 2000;
-        }
-        .controls.active {
-            display: block;
-        }
-        .controls button {
-            margin: 5px;
-        }
     </style>
 </head>
 <body>
     <div id="ui">
-        <h1>🥽 Sketchfab API Viewer</h1>
+        <h1>🥽 Sketchfab VR Viewer</h1>
         <div class="input-group">
             <label>Sketchfab モデルURL または モデルID:</label>
             <input type="text" id="modelInput" placeholder="例: https://sketchfab.com/3d-models/... または モデルID">
         </div>
         <button id="loadBtn">モデルを読み込む</button>
-        <button id="vrBtn" disabled>VRモードで表示</button>
-        <button id="hideBtn" style="display:none;">UIを非表示</button>
+        <button id="directVrBtn">直接VRで開く（推奨）</button>
         <div id="status"></div>
+        
+        <div class="warning">
+            <strong>⚠️ 重要なお知らせ:</strong><br>
+            Sketchfab Viewer APIのVR機能には以下の制限があります:<br>
+            • iframe内からのVRセッション起動に制約<br>
+            • Pico4のブラウザとの互換性問題<br>
+            <br>
+            <strong>解決方法:</strong><br>
+            <strong>「直接VRで開く」ボタンを使用してください。</strong><br>
+            これにより、SketchfabのVR対応ページを直接開きます。
+        </div>
+
         <div class="info">
-            <strong>使い方:</strong><br>
+            <strong>使い方（推奨）:</strong><br>
             1. Sketchfabのモデルページを開く<br>
             2. URLをコピー（例: https://sketchfab.com/3d-models/astronaut-...）<br>
-            3. 上記の入力欄にペーストして「モデルを読み込む」をクリック<br>
-            4. モデルが表示されたら「VRモードで表示」をクリック<br>
+            3. 上記の入力欄にペースト<br>
+            4. <strong>「直接VRで開く」ボタンをクリック</strong><br>
+            5. 開いたページで右下のVRアイコンをタップ<br>
             <br>
-            <strong>モデル例:</strong><br>
+            <strong>テスト用モデルID:</strong><br>
             • Astronaut: e1439c0427c84077bcaa233283ba0e5e<br>
+            • Robot: 0cb9ba8b67914096988560fc7fa7bddb<br>
             • Low Poly Mill: 16b8c0ce85764d0c9c89abae60404abd<br>
             <br>
-            <strong>注意:</strong><br>
-            • Sketchfab Viewer APIを使用（公式サポート）<br>
-            • ダウンロード不要でモデルを表示可能<br>
-            • VRモードはSketchfab側の機能を使用<br>
-            • モデルの権利は各クリエイターに帰属
+            <strong>または:</strong><br>
+            1. Sketchfab.comで好きなモデルを検索<br>
+            2. モデルページのURLをコピー<br>
+            3. 上記に入力して「直接VRで開く」
         </div>
     </div>
 
     <iframe id="viewer" allow="autoplay; fullscreen; xr-spatial-tracking; vr" allowfullscreen mozallowfullscreen="true" webkitallowfullscreen="true" xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share></iframe>
 
-    <div id="controls" class="controls">
-        <button id="showUiBtn">UIを表示</button>
-        <button id="exitBtn">終了</button>
-    </div>
-
     <script>
         let sketchfabAPI;
         let isViewerReady = false;
+        let currentModelId = null;
 
         function extractModelId(input) {
             input = input.trim();
             
-            // 32文字のIDの場合
             if (input.length === 32 && /^[a-f0-9]+$/i.test(input)) {
                 return input;
             }
             
-            // URL内のIDを抽出
             const patterns = [
                 /\/models\/([a-f0-9]{32})/i,
                 /sketchfab\.com\/3d-models\/[^\/]+-([a-f0-9]{32})/i,
@@ -177,15 +175,15 @@
         }
 
         function loadModel(modelId) {
+            currentModelId = modelId;
             updateStatus('モデルを読み込んでいます...');
             
             const iframe = document.getElementById('viewer');
-            const iframeUrl = `https://sketchfab.com/models/${modelId}/embed?autostart=1&preload=1&ui_infos=0&ui_controls=1&ui_stop=0`;
+            const iframeUrl = `https://sketchfab.com/models/${modelId}/embed?autostart=1&preload=1&ui_infos=0&ui_controls=1&ui_stop=0&ui_vr=1`;
             
             iframe.src = iframeUrl;
             iframe.classList.add('active');
             
-            // Sketchfab API初期化
             const client = new window.Sketchfab(iframe);
             
             client.init(modelId, {
@@ -195,9 +193,7 @@
                     
                     api.addEventListener('viewerready', function() {
                         isViewerReady = true;
-                        updateStatus('モデルの読み込みが完了しました！');
-                        document.getElementById('vrBtn').disabled = false;
-                        document.getElementById('hideBtn').style.display = 'inline-block';
+                        updateStatus('モデルの読み込みが完了しました！iframe内でVRアイコンをクリックしてください。');
                     });
                     
                     updateStatus('Sketchfab APIに接続しました');
@@ -208,14 +204,14 @@
             });
         }
 
-        function enterVR() {
-            if (sketchfabAPI && isViewerReady) {
-                // SketchfabのVR機能を起動
-                sketchfabAPI.setEnableVR(1);
-                updateStatus('VRモードを起動しています...');
-            } else {
-                updateStatus('エラー: モデルがまだ読み込まれていません');
-            }
+        function openDirectVR(modelId) {
+            updateStatus('Sketchfabページを開いています...');
+            
+            // SketchfabのVR対応ページを直接開く
+            const vrUrl = `https://sketchfab.com/models/${modelId}?vr=1`;
+            window.open(vrUrl, '_blank');
+            
+            updateStatus('新しいタブでSketchfabが開きました。そこでVRボタンをクリックしてください。');
         }
 
         document.getElementById('loadBtn').addEventListener('click', () => {
@@ -229,35 +225,23 @@
             }
         });
 
-        document.getElementById('vrBtn').addEventListener('click', () => {
-            enterVR();
-        });
-
-        document.getElementById('hideBtn').addEventListener('click', () => {
-            document.getElementById('ui').style.display = 'none';
-            document.getElementById('controls').classList.add('active');
-        });
-
-        document.getElementById('showUiBtn').addEventListener('click', () => {
-            document.getElementById('ui').style.display = 'block';
-            document.getElementById('controls').classList.remove('active');
-        });
-
-        document.getElementById('exitBtn').addEventListener('click', () => {
-            document.getElementById('viewer').classList.remove('active');
-            document.getElementById('viewer').src = '';
-            document.getElementById('ui').style.display = 'block';
-            document.getElementById('controls').classList.remove('active');
-            document.getElementById('vrBtn').disabled = true;
-            document.getElementById('hideBtn').style.display = 'none';
-            isViewerReady = false;
-            sketchfabAPI = null;
-            updateStatus('');
+        document.getElementById('directVrBtn').addEventListener('click', () => {
+            const input = document.getElementById('modelInput').value;
+            const modelId = extractModelId(input);
+            
+            if (modelId) {
+                openDirectVR(modelId);
+            } else {
+                updateStatus('エラー: 有効なSketchfab URLまたはモデルIDを入力してください');
+            }
         });
 
         // Sketchfab API スクリプトを読み込む
         const script = document.createElement('script');
         script.src = 'https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js';
+        script.onerror = function() {
+            updateStatus('警告: Sketchfab APIの読み込みに失敗しました。「直接VRで開く」ボタンを使用してください。');
+        };
         document.head.appendChild(script);
     </script>
 </body>
