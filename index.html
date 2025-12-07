@@ -583,12 +583,14 @@
                 // GLBまたはGLTFファイルを探す
                 let modelFile = null;
                 let modelFileName = null;
+                let isGLB = false;
                 
-                // まずGLBファイルを探す（優先）
+                // まずGLBファイルを探す（優先 - 自己完結型）
                 for (const fileName in zip.files) {
                     if (fileName.toLowerCase().endsWith('.glb') && !zip.files[fileName].dir) {
                         modelFile = zip.files[fileName];
                         modelFileName = fileName;
+                        isGLB = true;
                         console.log('GLBファイル発見:', fileName);
                         break;
                     }
@@ -600,6 +602,7 @@
                         if (fileName.toLowerCase().endsWith('.gltf') && !zip.files[fileName].dir) {
                             modelFile = zip.files[fileName];
                             modelFileName = fileName;
+                            isGLB = false;
                             console.log('GLTFファイル発見:', fileName);
                             break;
                         }
@@ -613,68 +616,134 @@
                 updateStatus(`モデルファイル "${modelFileName}" を抽出中...`);
                 updateProgress(70);
                 
-                // GLB/GLTFファイルを抽出
-                const modelData = await modelFile.async('arraybuffer');
-                const modelBlob = new Blob([modelData], { 
-                    type: modelFileName.endsWith('.glb') ? 'model/gltf-binary' : 'model/gltf+json' 
-                });
-                
-                console.log('モデルファイル抽出完了。サイズ:', modelBlob.size, 'bytes');
-                
-                // BlobからオブジェクトURLを作成
-                cleanupDownloadedData();
-                downloadedBlobUrl = URL.createObjectURL(modelBlob);
-                
-                updateStatus('モデルを読み込み中...');
-                updateProgress(80);
-                
-                // GLTFLoaderで読み込み
-                const loader = new THREE.GLTFLoader();
-                loader.load(
-                    downloadedBlobUrl,
-                    (gltf) => {
-                        if (model) {
-                            scene.remove(model);
+                // GLBの場合（自己完結型）
+                if (isGLB) {
+                    const modelData = await modelFile.async('arraybuffer');
+                    const modelBlob = new Blob([modelData], { type: 'model/gltf-binary' });
+                    
+                    console.log('GLBファイル抽出完了。サイズ:', modelBlob.size, 'bytes');
+                    
+                    cleanupDownloadedData();
+                    downloadedBlobUrl = URL.createObjectURL(modelBlob);
+                    
+                    updateStatus('モデルを読み込み中...');
+                    updateProgress(80);
+                    
+                    loadGLTFModel(downloadedBlobUrl, modelInfo);
+                } 
+                // GLTFの場合（外部ファイル参照の可能性あり）
+                else {
+                    updateStatus('GLTF形式を検出。関連ファイルを抽出中...');
+                    
+                    // GLTFファイルの内容を読み取り
+                    const gltfText = await modelFile.async('text');
+                    const gltfJson = JSON.parse(gltfText);
+                    
+                    // 必要な外部ファイル（.bin, テクスチャなど）を抽出
+                    const baseDir = modelFileName.includes('/') ? modelFileName.substring(0, modelFileName.lastIndexOf('/') + 1) : '';
+                    const filesNeeded = new Map();
+                    
+                    // buffers (.bin ファイル)
+                    if (gltfJson.buffers) {
+                        for (const buffer of gltfJson.buffers) {
+                            if (buffer.uri && !buffer.uri.startsWith('data:')) {
+                                const bufferPath = baseDir + buffer.uri;
+                                console.log('必要なバッファファイル:', bufferPath);
+                                filesNeeded.set(buffer.uri, bufferPath);
+                            }
                         }
-                        
-                        model = gltf.scene;
-                        
-                        const box = new THREE.Box3().setFromObject(model);
-                        const size = box.getSize(new THREE.Vector3());
-                        
-                        const maxDim = Math.max(size.x, size.y, size.z);
-                        const scale = 2 / maxDim;
-                        model.scale.setScalar(scale);
-                        modelScale = scale;
-                        
-                        model.position.copy(modelPosition);
-                        scene.add(model);
-                        
-                        document.getElementById('vrBtn').disabled = false;
-                        updateProgress(100);
-                        updateStatus(`✅ 「${modelInfo.name}」を読み込みました！VRモードで表示できます。`);
-                        
-                        setTimeout(() => updateProgress(0), 1500);
-                    },
-                    (progress) => {
-                        if (progress.total > 0) {
-                            const percent = 80 + (progress.loaded / progress.total * 20);
-                            updateProgress(percent);
-                        }
-                    },
-                    (error) => {
-                        console.error('GLTFLoader エラー詳細:', error);
-                        updateStatus('エラー: モデルの読み込みに失敗しました - ' + error.message);
-                        updateProgress(0);
-                        cleanupDownloadedData();
                     }
-                );
+                    
+                    // images (テクスチャファイル)
+                    if (gltfJson.images) {
+                        for (const image of gltfJson.images) {
+                            if (image.uri && !image.uri.startsWith('data:')) {
+                                const imagePath = baseDir + image.uri;
+                                console.log('必要な画像ファイル:', imagePath);
+                                filesNeeded.set(image.uri, imagePath);
+                            }
+                        }
+                    }
+                    
+                    // 外部ファイルを抽出してBlob URLに変換
+                    for (const [uri, path] of filesNeeded.entries()) {
+                        const file = zip.files[path];
+                        if (file && !file.dir) {
+                            const data = await file.async('arraybuffer');
+                            const blob = new Blob([data]);
+                            const blobUrl = URL.createObjectURL(blob);
+                            
+                            // GLTFのURIをBlob URLに置き換え
+                            const oldUri = `"${uri}"`;
+                            const newUri = `"${blobUrl}"`;
+                            gltfText = gltfText.replace(oldUri, newUri);
+                            
+                            console.log('ファイル抽出:', uri, '→', blobUrl);
+                        } else {
+                            console.warn('参照ファイルが見つかりません:', path);
+                        }
+                    }
+                    
+                    // 修正されたGLTFをBlobとして保存
+                    const modifiedGltfBlob = new Blob([gltfText], { type: 'model/gltf+json' });
+                    
+                    cleanupDownloadedData();
+                    downloadedBlobUrl = URL.createObjectURL(modifiedGltfBlob);
+                    
+                    updateStatus('モデルを読み込み中...');
+                    updateProgress(80);
+                    
+                    loadGLTFModel(downloadedBlobUrl, modelInfo);
+                }
                 
             } catch (error) {
                 updateStatus('エラー: ' + error.message);
                 updateProgress(0);
                 console.error('詳細エラー:', error);
             }
+        }
+
+        function loadGLTFModel(url, modelInfo) {
+            const loader = new THREE.GLTFLoader();
+            loader.load(
+                url,
+                (gltf) => {
+                    if (model) {
+                        scene.remove(model);
+                    }
+                    
+                    model = gltf.scene;
+                    
+                    const box = new THREE.Box3().setFromObject(model);
+                    const size = box.getSize(new THREE.Vector3());
+                    
+                    const maxDim = Math.max(size.x, size.y, size.z);
+                    const scale = 2 / maxDim;
+                    model.scale.setScalar(scale);
+                    modelScale = scale;
+                    
+                    model.position.copy(modelPosition);
+                    scene.add(model);
+                    
+                    document.getElementById('vrBtn').disabled = false;
+                    updateProgress(100);
+                    updateStatus(`✅ 「${modelInfo.name}」を読み込みました！VRモードで表示できます。`);
+                    
+                    setTimeout(() => updateProgress(0), 1500);
+                },
+                (progress) => {
+                    if (progress.total > 0) {
+                        const percent = 80 + (progress.loaded / progress.total * 20);
+                        updateProgress(percent);
+                    }
+                },
+                (error) => {
+                    console.error('GLTFLoader エラー詳細:', error);
+                    updateStatus('エラー: モデルの読み込みに失敗しました - ' + error.message);
+                    updateProgress(0);
+                    cleanupDownloadedData();
+                }
+            );
         }
 
         async function loadLocalFile(file) {
