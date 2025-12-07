@@ -41,7 +41,7 @@
             margin-bottom: 5px;
             font-size: 14px;
         }
-        input[type="text"] {
+        input[type="text"], input[type="password"] {
             width: 100%;
             max-width: 600px;
             padding: 10px;
@@ -93,8 +93,8 @@
         .warning {
             margin-top: 15px;
             padding: 15px;
-            background: rgba(255,100,0,0.3);
-            border: 2px solid rgba(255,100,0,0.6);
+            background: rgba(0,200,100,0.2);
+            border: 2px solid rgba(0,200,100,0.5);
             border-radius: 5px;
             font-size: 14px;
             line-height: 1.6;
@@ -130,23 +130,18 @@
         <h1>🥽 Sketchfab Auto-Download VR Viewer</h1>
         
         <div class="warning">
-            <strong>⚠️ 重要な制約:</strong><br>
-            SketchfabのDownload APIは<strong>認証トークンが必須</strong>です。<br>
-            以下の手順でAPIトークンを取得してください:<br>
-            1. <a href="https://sketchfab.com/settings/password" target="_blank" style="color: #66ccff;">Sketchfab設定ページ</a> にログイン<br>
-            2. 「API Settings」セクションで「Generate Token」をクリック<br>
-            3. 生成されたトークンを下記に入力<br>
+            <strong>✅ APIトークンについて:</strong><br>
+            添付画像の赤枠内の文字列が<strong>正しいAPIトークン</strong>です！<br>
+            そのまま下記の入力欄にコピー＆ペーストしてください。<br>
             <br>
             <strong>✅ ZIP自動解凍機能搭載:</strong><br>
             SketchfabからダウンロードしたZIPファイルを自動的に解凍し、<br>
-            GLB/GLTFファイルを抽出して表示します。ユーザー操作は不要です。<br>
-            <br>
-            <strong>注意:</strong> トークンは他人に見せないでください。
+            GLB/GLTFファイルを抽出して表示します。ユーザー操作は不要です。
         </div>
 
         <div class="input-group">
             <label>Sketchfab API トークン（必須）:</label>
-            <input type="password" id="apiToken" placeholder="あなたのAPIトークンを入力">
+            <input type="password" id="apiToken" placeholder="画像の赤枠内の文字列を貼り付け">
         </div>
 
         <div class="input-group">
@@ -171,29 +166,24 @@
 
         <div class="info">
             <strong>使い方:</strong><br>
-            1. 上記リンクからSketchfab APIトークンを取得<br>
-            2. トークンを入力欄にペースト<br>
-            3. SketchfabのモデルURLを入力<br>
-            4. 「Sketchfabから自動ダウンロード＆表示」をクリック<br>
-            5. 自動的にダウンロード→表示→VRモード準備完了<br>
-            6. ページを閉じるとダウンロードデータは自動削除<br>
+            1. 上記の入力欄にAPIトークンをペースト（画像の赤枠内の文字列）<br>
+            2. SketchfabのモデルURLを入力<br>
+            3. 「Sketchfabから自動ダウンロード＆表示」をクリック<br>
+            4. 自動的にZIPダウンロード→解凍→表示<br>
+            5. VRモードで表示ボタンをクリック<br>
+            6. ページを閉じるとデータは自動削除<br>
             <br>
             <strong>VRコントローラー操作:</strong><br>
             【右コントローラー】<br>
-            • 右スティック上下: X軸回転<br>
-            • 右スティック左右: Y軸回転<br>
+            • 右スティック上下: X軸回転 / 左右: Y軸回転<br>
             • Aボタン: テクスチャ表示ON/OFF<br>
             • Bボタン: VR表示解除<br>
-            • グリップのみ: オブジェクトを掴んで移動<br>
-            <br>
             【左コントローラー】<br>
-            • 左スティック上下: 奥行き移動<br>
-            • 左スティック左右: 横移動<br>
+            • 左スティック上下: 奥行き移動 / 左右: 横移動<br>
             • Xボタン: グリッド線表示ON/OFF<br>
             • Yボタン: 背景色反転<br>
-            • グリップのみ: オブジェクトを掴んで移動<br>
-            <br>
             【両手操作】<br>
+            • 片方グリップ: オブジェクトを掴んで移動<br>
             • 両グリップ同時押し: 両手の距離で拡大/縮小<br>
             <br>
             <strong>ダウンロード可能なモデル例:</strong><br>
@@ -555,53 +545,88 @@
                 }
                 
                 const downloadInfo = await downloadResponse.json();
-                
-                if (!downloadInfo.gltf || !downloadInfo.gltf.url) {
-                    throw new Error('GLTFダウンロードURLが見つかりません。このモデルはダウンロード不可の可能性があります。');
-                }
+                console.log('ダウンロード情報:', downloadInfo);
                 
                 // ダウンロード形式を確認してURLを取得
                 let downloadUrl = null;
-                let fileExtension = null;
                 
                 if (downloadInfo.gltf && downloadInfo.gltf.url) {
                     downloadUrl = downloadInfo.gltf.url;
-                    fileExtension = 'gltf';
                     updateStatus('GLTF形式でダウンロード中...');
                 } else if (downloadInfo.glb && downloadInfo.glb.url) {
                     downloadUrl = downloadInfo.glb.url;
-                    fileExtension = 'glb';
                     updateStatus('GLB形式でダウンロード中...');
                 } else {
-                    throw new Error('ダウンロード可能な形式が見つかりません。このモデルはGLTF/GLB形式をサポートしていない可能性があります。');
+                    throw new Error('ダウンロード可能な形式が見つかりません。');
                 }
                 
                 updateProgress(30);
                 console.log('ダウンロードURL:', downloadUrl);
                 
-                // ZIPファイルとしてダウンロード（Sketchfabは通常ZIP形式で提供）
-                const modelResponse = await fetch(downloadUrl);
-                if (!modelResponse.ok) {
-                    throw new Error(`モデルファイルのダウンロードに失敗しました (ステータス: ${modelResponse.status})`);
+                // ZIPファイルをダウンロード
+                updateStatus('ZIPファイルをダウンロード中...');
+                const zipResponse = await fetch(downloadUrl);
+                if (!zipResponse.ok) {
+                    throw new Error(`ZIPファイルのダウンロードに失敗しました (ステータス: ${zipResponse.status})`);
                 }
                 
-                const blob = await modelResponse.blob();
+                const zipBlob = await zipResponse.blob();
+                updateProgress(50);
+                console.log('ZIPダウンロード完了。ファイルサイズ:', zipBlob.size, 'bytes');
+                
+                // ZIPファイルを解凍
+                updateStatus('ZIPファイルを解凍中...');
+                const zip = await JSZip.loadAsync(zipBlob);
                 updateProgress(60);
-                console.log('ダウンロード完了。ファイルサイズ:', blob.size, 'bytes, タイプ:', blob.type);
+                console.log('ZIP解凍完了。ファイル一覧:', Object.keys(zip.files));
                 
-                // ZIPファイルかどうか確認
-                if (blob.type === 'application/zip' || blob.type === 'application/x-zip-compressed') {
-                    updateStatus('注意: ダウンロードしたファイルはZIP形式です。現在、ZIP解凍には対応していません。');
-                    updateProgress(0);
-                    throw new Error('SketchfabのダウンロードはZIP形式です。事前にPCでダウンロード→解凍→GLBファイルをアップロードしてください。');
+                // GLBまたはGLTFファイルを探す
+                let modelFile = null;
+                let modelFileName = null;
+                
+                // まずGLBファイルを探す（優先）
+                for (const fileName in zip.files) {
+                    if (fileName.toLowerCase().endsWith('.glb') && !zip.files[fileName].dir) {
+                        modelFile = zip.files[fileName];
+                        modelFileName = fileName;
+                        console.log('GLBファイル発見:', fileName);
+                        break;
+                    }
                 }
                 
-                // BlobからオブジェクトURLを作成（メモリ上に保持）
-                cleanupDownloadedData(); // 既存データをクリーンアップ
-                downloadedBlobUrl = URL.createObjectURL(blob);
+                // GLBが見つからない場合はGLTFを探す
+                if (!modelFile) {
+                    for (const fileName in zip.files) {
+                        if (fileName.toLowerCase().endsWith('.gltf') && !zip.files[fileName].dir) {
+                            modelFile = zip.files[fileName];
+                            modelFileName = fileName;
+                            console.log('GLTFファイル発見:', fileName);
+                            break;
+                        }
+                    }
+                }
+                
+                if (!modelFile) {
+                    throw new Error('ZIP内にGLBまたはGLTFファイルが見つかりませんでした。ファイル一覧: ' + Object.keys(zip.files).join(', '));
+                }
+                
+                updateStatus(`モデルファイル "${modelFileName}" を抽出中...`);
+                updateProgress(70);
+                
+                // GLB/GLTFファイルを抽出
+                const modelData = await modelFile.async('arraybuffer');
+                const modelBlob = new Blob([modelData], { 
+                    type: modelFileName.endsWith('.glb') ? 'model/gltf-binary' : 'model/gltf+json' 
+                });
+                
+                console.log('モデルファイル抽出完了。サイズ:', modelBlob.size, 'bytes');
+                
+                // BlobからオブジェクトURLを作成
+                cleanupDownloadedData();
+                downloadedBlobUrl = URL.createObjectURL(modelBlob);
                 
                 updateStatus('モデルを読み込み中...');
-                updateProgress(70);
+                updateProgress(80);
                 
                 // GLTFLoaderで読み込み
                 const loader = new THREE.GLTFLoader();
@@ -627,13 +652,13 @@
                         
                         document.getElementById('vrBtn').disabled = false;
                         updateProgress(100);
-                        updateStatus(`「${modelInfo.name}」を読み込みました！VRモードで表示できます。`);
+                        updateStatus(`✅ 「${modelInfo.name}」を読み込みました！VRモードで表示できます。`);
                         
-                        setTimeout(() => updateProgress(0), 1000);
+                        setTimeout(() => updateProgress(0), 1500);
                     },
                     (progress) => {
                         if (progress.total > 0) {
-                            const percent = 70 + (progress.loaded / progress.total * 30);
+                            const percent = 80 + (progress.loaded / progress.total * 20);
                             updateProgress(percent);
                         }
                     },
@@ -649,11 +674,6 @@
                 updateStatus('エラー: ' + error.message);
                 updateProgress(0);
                 console.error('詳細エラー:', error);
-                
-                // デバッグ情報を表示
-                if (error.message.includes('ZIP')) {
-                    updateStatus('エラー: SketchfabのダウンロードファイルはZIP形式です。代替方法: 1) PCでダウンロード→解凍→GLBファイルを「ローカルファイルを読み込む」で使用、または 2) ダウンロード済みのGLB/GLTFファイルを直接使用してください。');
-                }
             }
         }
 
@@ -685,7 +705,7 @@
                         scene.add(model);
                         
                         document.getElementById('vrBtn').disabled = false;
-                        updateStatus(`ファイル "${file.name}" を読み込みました!`);
+                        updateStatus(`✅ ファイル "${file.name}" を読み込みました!`);
                         
                         URL.revokeObjectURL(url);
                     },
@@ -709,7 +729,7 @@
             const modelId = extractModelId(input);
             
             if (!apiToken) {
-                updateStatus('エラー: APIトークンを入力してください');
+                updateStatus('エラー: APIトークンを入力してください（画像の赤枠内の文字列）');
                 return;
             }
             
