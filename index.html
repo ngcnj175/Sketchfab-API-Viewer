@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sketchfab VR Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <style>
         body {
             margin: 0;
@@ -19,8 +21,12 @@
             width: 100%;
             padding: 20px;
             box-sizing: border-box;
-            background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
             z-index: 1000;
+        }
+        #container {
+            width: 100%;
+            height: 100vh;
         }
         h1 {
             margin: 0 0 20px 0;
@@ -34,7 +40,7 @@
             margin-bottom: 5px;
             font-size: 14px;
         }
-        input {
+        input[type="text"] {
             width: 100%;
             max-width: 600px;
             padding: 10px;
@@ -44,6 +50,11 @@
             background: #2a2a2a;
             color: #fff;
             box-sizing: border-box;
+        }
+        input[type="file"] {
+            padding: 10px;
+            font-size: 16px;
+            color: #fff;
         }
         button {
             padding: 12px 24px;
@@ -81,71 +92,379 @@
         .warning {
             margin-top: 15px;
             padding: 15px;
-            background: rgba(255,100,0,0.2);
-            border: 1px solid rgba(255,100,0,0.5);
+            background: rgba(255,100,0,0.3);
+            border: 2px solid rgba(255,100,0,0.6);
             border-radius: 5px;
-            font-size: 13px;
+            font-size: 14px;
             line-height: 1.6;
         }
-        #viewer {
+        canvas {
+            display: block;
             width: 100%;
-            height: 100vh;
-            border: none;
+            height: 100%;
+        }
+        .progress-bar {
+            width: 100%;
+            max-width: 600px;
+            height: 20px;
+            background: #2a2a2a;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
             display: none;
         }
-        #viewer.active {
+        .progress-bar.active {
             display: block;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #0066cc, #0099ff);
+            width: 0%;
+            transition: width 0.3s;
         }
     </style>
 </head>
 <body>
     <div id="ui">
-        <h1>🥽 Sketchfab VR Viewer</h1>
-        <div class="input-group">
-            <label>Sketchfab モデルURL または モデルID:</label>
-            <input type="text" id="modelInput" placeholder="例: https://sketchfab.com/3d-models/... または モデルID">
-        </div>
-        <button id="loadBtn">モデルを読み込む</button>
-        <button id="directVrBtn">直接VRで開く（推奨）</button>
-        <div id="status"></div>
+        <h1>🥽 Sketchfab Auto-Download VR Viewer</h1>
         
         <div class="warning">
-            <strong>⚠️ 重要なお知らせ:</strong><br>
-            Sketchfab Viewer APIのVR機能には以下の制限があります:<br>
-            • iframe内からのVRセッション起動に制約<br>
-            • Pico4のブラウザとの互換性問題<br>
+            <strong>⚠️ 重要な制約:</strong><br>
+            SketchfabのDownload APIは<strong>認証トークンが必須</strong>です。<br>
+            以下の手順でAPIトークンを取得してください:<br>
+            1. <a href="https://sketchfab.com/settings/password" target="_blank" style="color: #66ccff;">Sketchfab設定ページ</a> にログイン<br>
+            2. 「API Settings」セクションで「Generate Token」をクリック<br>
+            3. 生成されたトークンを下記に入力<br>
             <br>
-            <strong>解決方法:</strong><br>
-            <strong>「直接VRで開く」ボタンを使用してください。</strong><br>
-            これにより、SketchfabのVR対応ページを直接開きます。
+            <strong>注意:</strong> トークンは他人に見せないでください。
         </div>
+
+        <div class="input-group">
+            <label>Sketchfab API トークン（必須）:</label>
+            <input type="password" id="apiToken" placeholder="あなたのAPIトークンを入力">
+        </div>
+
+        <div class="input-group">
+            <label>Sketchfab モデルURL または モデルID:</label>
+            <input type="text" id="urlInput" placeholder="https://sketchfab.com/3d-models/... または モデルID">
+        </div>
+        
+        <div class="input-group">
+            <label>または、ローカルファイル (.glb, .gltf):</label>
+            <input type="file" id="fileInput" accept=".glb,.gltf">
+        </div>
+
+        <button id="loadBtn">Sketchfabから自動ダウンロード＆表示</button>
+        <button id="loadFileBtn">ローカルファイルを読み込む</button>
+        <button id="vrBtn" disabled>VRモードで表示</button>
+
+        <div class="progress-bar" id="progressBar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+
+        <div id="status"></div>
 
         <div class="info">
-            <strong>使い方（推奨）:</strong><br>
-            1. Sketchfabのモデルページを開く<br>
-            2. URLをコピー（例: https://sketchfab.com/3d-models/astronaut-...）<br>
-            3. 上記の入力欄にペースト<br>
-            4. <strong>「直接VRで開く」ボタンをクリック</strong><br>
-            5. 開いたページで右下のVRアイコンをタップ<br>
+            <strong>使い方:</strong><br>
+            1. 上記リンクからSketchfab APIトークンを取得<br>
+            2. トークンを入力欄にペースト<br>
+            3. SketchfabのモデルURLを入力<br>
+            4. 「Sketchfabから自動ダウンロード＆表示」をクリック<br>
+            5. 自動的にダウンロード→表示→VRモード準備完了<br>
+            6. ページを閉じるとダウンロードデータは自動削除<br>
             <br>
-            <strong>テスト用モデルID:</strong><br>
-            • Astronaut: e1439c0427c84077bcaa233283ba0e5e<br>
-            • Robot: 0cb9ba8b67914096988560fc7fa7bddb<br>
-            • Low Poly Mill: 16b8c0ce85764d0c9c89abae60404abd<br>
+            <strong>VRコントローラー操作:</strong><br>
+            【右コントローラー】<br>
+            • 右スティック上下: X軸回転<br>
+            • 右スティック左右: Y軸回転<br>
+            • Aボタン: テクスチャ表示ON/OFF<br>
+            • Bボタン: VR表示解除<br>
+            • グリップのみ: オブジェクトを掴んで移動<br>
             <br>
-            <strong>または:</strong><br>
-            1. Sketchfab.comで好きなモデルを検索<br>
-            2. モデルページのURLをコピー<br>
-            3. 上記に入力して「直接VRで開く」
+            【左コントローラー】<br>
+            • 左スティック上下: 奥行き移動<br>
+            • 左スティック左右: 横移動<br>
+            • Xボタン: グリッド線表示ON/OFF<br>
+            • Yボタン: 背景色反転<br>
+            • グリップのみ: オブジェクトを掴んで移動<br>
+            <br>
+            【両手操作】<br>
+            • 両グリップ同時押し: 両手の距離で拡大/縮小<br>
+            <br>
+            <strong>ダウンロード可能なモデル例:</strong><br>
+            • <a href="https://sketchfab.com/search?features=downloadable&type=models" target="_blank" style="color: #66ccff;">ダウンロード可能モデル一覧</a>
         </div>
     </div>
-
-    <iframe id="viewer" allow="autoplay; fullscreen; xr-spatial-tracking; vr" allowfullscreen mozallowfullscreen="true" webkitallowfullscreen="true" xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share></iframe>
+    <div id="container"></div>
 
     <script>
-        let sketchfabAPI;
-        let isViewerReady = false;
-        let currentModelId = null;
+        let scene, camera, renderer, model, gridHelper;
+        let controllers = [];
+        let isDarkMode = true;
+        let isTextureVisible = true;
+        let isGridVisible = true;
+        let modelScale = 1;
+        let modelPosition = new THREE.Vector3(0, 1.5, -2);
+        let modelRotationX = 0;
+        let modelRotationY = 0;
+        let isDragging = false;
+        let dragController = null;
+        let previousControllerPosition = new THREE.Vector3();
+        let vrSession = null;
+        let leftGrip = false;
+        let rightGrip = false;
+        let initialGripDistance = 0;
+        let initialScale = 1;
+        let downloadedBlobUrl = null;
+
+        function init() {
+            const container = document.getElementById('container');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 1.6, 0);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            container.appendChild(renderer.domElement);
+            
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 7.5);
+            scene.add(directionalLight);
+            
+            gridHelper = new THREE.GridHelper(20, 40, 0x808080, 0x808080);
+            scene.add(gridHelper);
+            
+            setupControllers();
+            
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('beforeunload', cleanupDownloadedData);
+            
+            renderer.setAnimationLoop(render);
+        }
+
+        function setupControllers() {
+            for (let i = 0; i < 2; i++) {
+                const controller = renderer.xr.getController(i);
+                controller.userData.index = i;
+                
+                controller.addEventListener('squeezestart', onSqueezeStart);
+                controller.addEventListener('squeezeend', onSqueezeEnd);
+                
+                scene.add(controller);
+                
+                const grip = renderer.xr.getControllerGrip(i);
+                
+                const geometry = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(0, 0, 0),
+                    new THREE.Vector3(0, 0, -1)
+                ]);
+                const material = new THREE.LineBasicMaterial({ color: i === 0 ? 0xff0000 : 0x0000ff });
+                const line = new THREE.Line(geometry, material);
+                controller.add(line);
+                
+                scene.add(grip);
+                
+                controllers.push({ controller, grip });
+            }
+        }
+
+        function onSqueezeStart(event) {
+            const controller = event.target;
+            if (controller.userData.index === 0) {
+                leftGrip = true;
+            } else {
+                rightGrip = true;
+            }
+            
+            if (leftGrip && rightGrip) {
+                const distance = controllers[0].controller.position.distanceTo(controllers[1].controller.position);
+                initialGripDistance = distance;
+                initialScale = modelScale;
+                isDragging = false;
+            } else if (model) {
+                isDragging = true;
+                dragController = controller;
+                previousControllerPosition.copy(controller.position);
+            }
+        }
+
+        function onSqueezeEnd(event) {
+            const controller = event.target;
+            if (controller.userData.index === 0) {
+                leftGrip = false;
+            } else {
+                rightGrip = false;
+            }
+            
+            if (!leftGrip && !rightGrip) {
+                isDragging = false;
+                dragController = null;
+            }
+        }
+
+        function toggleTexture() {
+            isTextureVisible = !isTextureVisible;
+            
+            if (model) {
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        if (isTextureVisible) {
+                            if (child.userData.originalMaterial) {
+                                child.material = child.userData.originalMaterial;
+                            }
+                        } else {
+                            if (!child.userData.originalMaterial) {
+                                child.userData.originalMaterial = child.material;
+                            }
+                            child.material = new THREE.MeshStandardMaterial({
+                                color: 0xcccccc,
+                                metalness: 0.3,
+                                roughness: 0.7
+                            });
+                        }
+                    }
+                });
+            }
+            
+            updateStatus(isTextureVisible ? 'テクスチャ: 表示' : 'テクスチャ: 非表示');
+        }
+
+        function toggleGrid() {
+            isGridVisible = !isGridVisible;
+            if (gridHelper) {
+                gridHelper.visible = isGridVisible;
+            }
+            updateStatus(isGridVisible ? 'グリッド線: 表示' : 'グリッド線: 非表示');
+        }
+
+        function toggleBackgroundColor() {
+            isDarkMode = !isDarkMode;
+            scene.background = isDarkMode ? new THREE.Color(0x1a1a1a) : new THREE.Color(0xe0e0e0);
+            updateStatus(isDarkMode ? '背景: ダーク' : '背景: ライト');
+        }
+
+        function updateControllerInput() {
+            const session = renderer.xr.getSession();
+            if (!session) return;
+
+            session.inputSources.forEach((source, i) => {
+                if (source.gamepad) {
+                    const gamepad = source.gamepad;
+                    const axes = gamepad.axes;
+                    
+                    if (axes.length >= 4 && model) {
+                        const moveSpeed = 0.05;
+                        const rotateSpeed = 0.02;
+                        
+                        if (i === 1) {
+                            if (Math.abs(axes[3]) > 0.1) {
+                                modelRotationX += axes[3] * rotateSpeed;
+                                model.rotation.x = modelRotationX;
+                            }
+                            if (Math.abs(axes[2]) > 0.1) {
+                                modelRotationY += axes[2] * rotateSpeed;
+                                model.rotation.y = modelRotationY;
+                            }
+                        }
+                        
+                        if (i === 0) {
+                            if (Math.abs(axes[0]) > 0.1) {
+                                modelPosition.x += axes[0] * moveSpeed;
+                                model.position.copy(modelPosition);
+                            }
+                            if (Math.abs(axes[1]) > 0.1) {
+                                modelPosition.z += axes[1] * moveSpeed;
+                                model.position.copy(modelPosition);
+                            }
+                        }
+                    }
+                    
+                    if (i === 1) {
+                        if (gamepad.buttons[4] && gamepad.buttons[4].pressed) {
+                            if (!gamepad.buttons[4].wasPressed) {
+                                toggleTexture();
+                            }
+                            gamepad.buttons[4].wasPressed = true;
+                        } else {
+                            gamepad.buttons[4].wasPressed = false;
+                        }
+                        
+                        if (gamepad.buttons[5] && gamepad.buttons[5].pressed) {
+                            if (!gamepad.buttons[5].wasPressed) {
+                                exitVR();
+                            }
+                            gamepad.buttons[5].wasPressed = true;
+                        } else {
+                            gamepad.buttons[5].wasPressed = false;
+                        }
+                    }
+                    
+                    if (i === 0) {
+                        if (gamepad.buttons[4] && gamepad.buttons[4].pressed) {
+                            if (!gamepad.buttons[4].wasPressed) {
+                                toggleGrid();
+                            }
+                            gamepad.buttons[4].wasPressed = true;
+                        } else {
+                            gamepad.buttons[4].wasPressed = false;
+                        }
+                        
+                        if (gamepad.buttons[5] && gamepad.buttons[5].pressed) {
+                            if (!gamepad.buttons[5].wasPressed) {
+                                toggleBackgroundColor();
+                            }
+                            gamepad.buttons[5].wasPressed = true;
+                        } else {
+                            gamepad.buttons[5].wasPressed = false;
+                        }
+                    }
+                }
+            });
+
+            if (leftGrip && rightGrip && controllers.length === 2 && model) {
+                const currentDistance = controllers[0].controller.position.distanceTo(controllers[1].controller.position);
+                const scaleRatio = currentDistance / initialGripDistance;
+                modelScale = initialScale * scaleRatio;
+                model.scale.setScalar(modelScale);
+            } else if (isDragging && dragController && model) {
+                const deltaPosition = new THREE.Vector3().subVectors(
+                    dragController.position,
+                    previousControllerPosition
+                );
+                
+                modelPosition.add(deltaPosition);
+                model.position.copy(modelPosition);
+                
+                previousControllerPosition.copy(dragController.position);
+            }
+        }
+
+        function exitVR() {
+            if (vrSession) {
+                vrSession.end();
+                vrSession = null;
+                document.getElementById('ui').style.display = 'block';
+                updateStatus('VR表示を解除しました');
+            }
+        }
+
+        function render() {
+            updateControllerInput();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
 
         function extractModelId(input) {
             input = input.trim();
@@ -174,75 +493,249 @@
             document.getElementById('status').textContent = message;
         }
 
-        function loadModel(modelId) {
-            currentModelId = modelId;
-            updateStatus('モデルを読み込んでいます...');
+        function updateProgress(percent) {
+            const progressBar = document.getElementById('progressBar');
+            const progressFill = document.getElementById('progressFill');
             
-            const iframe = document.getElementById('viewer');
-            const iframeUrl = `https://sketchfab.com/models/${modelId}/embed?autostart=1&preload=1&ui_infos=0&ui_controls=1&ui_stop=0&ui_vr=1`;
-            
-            iframe.src = iframeUrl;
-            iframe.classList.add('active');
-            
-            const client = new window.Sketchfab(iframe);
-            
-            client.init(modelId, {
-                success: function onSuccess(api) {
-                    sketchfabAPI = api;
-                    api.start();
-                    
-                    api.addEventListener('viewerready', function() {
-                        isViewerReady = true;
-                        updateStatus('モデルの読み込みが完了しました！iframe内でVRアイコンをクリックしてください。');
-                    });
-                    
-                    updateStatus('Sketchfab APIに接続しました');
-                },
-                error: function onError() {
-                    updateStatus('エラー: モデルの読み込みに失敗しました');
-                }
-            });
+            if (percent > 0 && percent < 100) {
+                progressBar.classList.add('active');
+                progressFill.style.width = percent + '%';
+            } else {
+                progressBar.classList.remove('active');
+                progressFill.style.width = '0%';
+            }
         }
 
-        function openDirectVR(modelId) {
-            updateStatus('Sketchfabページを開いています...');
+        function cleanupDownloadedData() {
+            if (downloadedBlobUrl) {
+                URL.revokeObjectURL(downloadedBlobUrl);
+                downloadedBlobUrl = null;
+                console.log('ダウンロードデータを削除しました');
+            }
+        }
+
+        async function downloadAndLoadSketchfabModel(modelId, apiToken) {
+            updateStatus('Sketchfabモデル情報を取得中...');
+            updateProgress(10);
             
-            // SketchfabのVR対応ページを直接開く
-            const vrUrl = `https://sketchfab.com/models/${modelId}?vr=1`;
-            window.open(vrUrl, '_blank');
+            try {
+                // モデル情報を取得
+                const infoResponse = await fetch(`https://api.sketchfab.com/v3/models/${modelId}`, {
+                    headers: {
+                        'Authorization': `Token ${apiToken}`
+                    }
+                });
+                
+                if (!infoResponse.ok) {
+                    throw new Error('モデル情報の取得に失敗しました。APIトークンを確認してください。');
+                }
+                
+                const modelInfo = await infoResponse.json();
+                updateStatus(`モデル「${modelInfo.name}」のダウンロード準備中...`);
+                updateProgress(20);
+                
+                // ダウンロードURLを取得
+                const downloadResponse = await fetch(`https://api.sketchfab.com/v3/models/${modelId}/download`, {
+                    headers: {
+                        'Authorization': `Token ${apiToken}`
+                    }
+                });
+                
+                if (!downloadResponse.ok) {
+                    const error = await downloadResponse.json();
+                    if (downloadResponse.status === 403) {
+                        throw new Error('このモデルはダウンロードできません。ダウンロード可能なモデルを選択してください。');
+                    }
+                    throw new Error('ダウンロードURLの取得に失敗: ' + (error.detail || '不明なエラー'));
+                }
+                
+                const downloadInfo = await downloadResponse.json();
+                
+                if (!downloadInfo.gltf || !downloadInfo.gltf.url) {
+                    throw new Error('GLTFダウンロードURLが見つかりません。このモデルはダウンロード不可の可能性があります。');
+                }
+                
+                const gltfUrl = downloadInfo.gltf.url;
+                updateStatus('モデルをダウンロード中...');
+                updateProgress(30);
+                
+                // モデルファイルをダウンロード
+                const modelResponse = await fetch(gltfUrl);
+                if (!modelResponse.ok) {
+                    throw new Error('モデルファイルのダウンロードに失敗しました');
+                }
+                
+                const blob = await modelResponse.blob();
+                updateProgress(70);
+                
+                // BlobからオブジェクトURLを作成（メモリ上に保持）
+                cleanupDownloadedData(); // 既存データをクリーンアップ
+                downloadedBlobUrl = URL.createObjectURL(blob);
+                
+                updateStatus('モデルを読み込み中...');
+                updateProgress(80);
+                
+                // GLTFLoaderで読み込み
+                const loader = new THREE.GLTFLoader();
+                loader.load(
+                    downloadedBlobUrl,
+                    (gltf) => {
+                        if (model) {
+                            scene.remove(model);
+                        }
+                        
+                        model = gltf.scene;
+                        
+                        const box = new THREE.Box3().setFromObject(model);
+                        const size = box.getSize(new THREE.Vector3());
+                        
+                        const maxDim = Math.max(size.x, size.y, size.z);
+                        const scale = 2 / maxDim;
+                        model.scale.setScalar(scale);
+                        modelScale = scale;
+                        
+                        model.position.copy(modelPosition);
+                        scene.add(model);
+                        
+                        document.getElementById('vrBtn').disabled = false;
+                        updateProgress(100);
+                        updateStatus(`「${modelInfo.name}」を読み込みました！VRモードで表示できます。`);
+                        
+                        setTimeout(() => updateProgress(0), 1000);
+                    },
+                    (progress) => {
+                        const percent = 80 + (progress.loaded / progress.total * 20);
+                        updateProgress(percent);
+                    },
+                    (error) => {
+                        updateStatus('エラー: モデルの読み込みに失敗しました');
+                        updateProgress(0);
+                        console.error(error);
+                    }
+                );
+                
+            } catch (error) {
+                updateStatus('エラー: ' + error.message);
+                updateProgress(0);
+                console.error(error);
+            }
+        }
+
+        async function loadLocalFile(file) {
+            updateStatus('ローカルファイルを読み込んでいます...');
             
-            updateStatus('新しいタブでSketchfabが開きました。そこでVRボタンをクリックしてください。');
+            try {
+                const url = URL.createObjectURL(file);
+                const loader = new THREE.GLTFLoader();
+                
+                loader.load(
+                    url,
+                    (gltf) => {
+                        if (model) {
+                            scene.remove(model);
+                        }
+                        
+                        model = gltf.scene;
+                        
+                        const box = new THREE.Box3().setFromObject(model);
+                        const size = box.getSize(new THREE.Vector3());
+                        
+                        const maxDim = Math.max(size.x, size.y, size.z);
+                        const scale = 2 / maxDim;
+                        model.scale.setScalar(scale);
+                        modelScale = scale;
+                        
+                        model.position.copy(modelPosition);
+                        scene.add(model);
+                        
+                        document.getElementById('vrBtn').disabled = false;
+                        updateStatus(`ファイル "${file.name}" を読み込みました!`);
+                        
+                        URL.revokeObjectURL(url);
+                    },
+                    undefined,
+                    (error) => {
+                        updateStatus('エラー: ファイルの読み込みに失敗しました');
+                        console.error(error);
+                        URL.revokeObjectURL(url);
+                    }
+                );
+                
+            } catch (error) {
+                updateStatus('エラー: ' + error.message);
+                console.error(error);
+            }
         }
 
         document.getElementById('loadBtn').addEventListener('click', () => {
-            const input = document.getElementById('modelInput').value;
+            const apiToken = document.getElementById('apiToken').value.trim();
+            const input = document.getElementById('urlInput').value;
             const modelId = extractModelId(input);
             
+            if (!apiToken) {
+                updateStatus('エラー: APIトークンを入力してください');
+                return;
+            }
+            
             if (modelId) {
-                loadModel(modelId);
+                downloadAndLoadSketchfabModel(modelId, apiToken);
             } else {
                 updateStatus('エラー: 有効なSketchfab URLまたはモデルIDを入力してください');
             }
         });
 
-        document.getElementById('directVrBtn').addEventListener('click', () => {
-            const input = document.getElementById('modelInput').value;
-            const modelId = extractModelId(input);
+        document.getElementById('loadFileBtn').addEventListener('click', () => {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
             
-            if (modelId) {
-                openDirectVR(modelId);
+            if (file) {
+                loadLocalFile(file);
             } else {
-                updateStatus('エラー: 有効なSketchfab URLまたはモデルIDを入力してください');
+                updateStatus('エラー: ファイルを選択してください');
             }
         });
 
-        // Sketchfab API スクリプトを読み込む
-        const script = document.createElement('script');
-        script.src = 'https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js';
-        script.onerror = function() {
-            updateStatus('警告: Sketchfab APIの読み込みに失敗しました。「直接VRで開く」ボタンを使用してください。');
-        };
-        document.head.appendChild(script);
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                loadLocalFile(file);
+            }
+        });
+
+        document.getElementById('vrBtn').addEventListener('click', async () => {
+            if (!navigator.xr) {
+                updateStatus('エラー: WebXRがサポートされていません');
+                return;
+            }
+            
+            try {
+                const supported = await navigator.xr.isSessionSupported('immersive-vr');
+                if (!supported) {
+                    updateStatus('エラー: VRモードがサポートされていません');
+                    return;
+                }
+                
+                vrSession = await navigator.xr.requestSession('immersive-vr', {
+                    optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+                });
+                
+                vrSession.addEventListener('end', () => {
+                    document.getElementById('ui').style.display = 'block';
+                    vrSession = null;
+                    updateStatus('VR表示を解除しました');
+                });
+                
+                await renderer.xr.setSession(vrSession);
+                document.getElementById('ui').style.display = 'none';
+                updateStatus('VRモードで表示中...');
+                
+            } catch (error) {
+                updateStatus('VRセッションの開始に失敗: ' + error.message);
+                console.error(error);
+            }
+        });
+
+        init();
     </script>
 </body>
 </html>
