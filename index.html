@@ -636,7 +636,7 @@
                     updateStatus('GLTF形式を検出。関連ファイルを抽出中...');
                     
                     // GLTFファイルの内容を読み取り
-                    const gltfText = await modelFile.async('text');
+                    let gltfText = await modelFile.async('text');
                     const gltfJson = JSON.parse(gltfText);
                     
                     // 必要な外部ファイル（.bin, テクスチャなど）を抽出
