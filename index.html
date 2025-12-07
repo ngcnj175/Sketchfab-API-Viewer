@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sketchfab API Viewer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 20px;
+            box-sizing: border-box;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+            z-index: 1000;
+        }
+        h1 {
+            margin: 0 0 20px 0;
+            font-size: 24px;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        input {
+            width: 100%;
+            max-width: 600px;
+            padding: 10px;
+            font-size: 16px;
+            border: 2px solid #444;
+            border-radius: 5px;
+            background: #2a2a2a;
+            color: #fff;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            background: #0066cc;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(0,0,0,0.6);
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0,100,200,0.2);
+            border-radius: 5px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        #viewer {
+            width: 100%;
+            height: 100vh;
+            border: none;
+            display: none;
+        }
+        #viewer.active {
+            display: block;
+        }
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 10px;
+            display: none;
+            z-index: 2000;
+        }
+        .controls.active {
+            display: block;
+        }
+        .controls button {
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h1>🥽 Sketchfab API Viewer</h1>
+        <div class="input-group">
+            <label>Sketchfab モデルURL または モデルID:</label>
+            <input type="text" id="modelInput" placeholder="例: https://sketchfab.com/3d-models/... または モデルID">
+        </div>
+        <button id="loadBtn">モデルを読み込む</button>
+        <button id="vrBtn" disabled>VRモードで表示</button>
+        <button id="hideBtn" style="display:none;">UIを非表示</button>
+        <div id="status"></div>
+        <div class="info">
+            <strong>使い方:</strong><br>
+            1. Sketchfabのモデルページを開く<br>
+            2. URLをコピー（例: https://sketchfab.com/3d-models/astronaut-...）<br>
+            3. 上記の入力欄にペーストして「モデルを読み込む」をクリック<br>
+            4. モデルが表示されたら「VRモードで表示」をクリック<br>
+            <br>
+            <strong>モデル例:</strong><br>
+            • Astronaut: e1439c0427c84077bcaa233283ba0e5e<br>
+            • Low Poly Mill: 16b8c0ce85764d0c9c89abae60404abd<br>
+            <br>
+            <strong>注意:</strong><br>
+            • Sketchfab Viewer APIを使用（公式サポート）<br>
+            • ダウンロード不要でモデルを表示可能<br>
+            • VRモードはSketchfab側の機能を使用<br>
+            • モデルの権利は各クリエイターに帰属
+        </div>
+    </div>
+
+    <iframe id="viewer" allow="autoplay; fullscreen; xr-spatial-tracking; vr" allowfullscreen mozallowfullscreen="true" webkitallowfullscreen="true" xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share></iframe>
+
+    <div id="controls" class="controls">
+        <button id="showUiBtn">UIを表示</button>
+        <button id="exitBtn">終了</button>
+    </div>
+
+    <script>
+        let sketchfabAPI;
+        let isViewerReady = false;
+
+        function extractModelId(input) {
+            input = input.trim();
+            
+            // 32文字のIDの場合
+            if (input.length === 32 && /^[a-f0-9]+$/i.test(input)) {
+                return input;
+            }
+            
+            // URL内のIDを抽出
+            const patterns = [
+                /\/models\/([a-f0-9]{32})/i,
+                /sketchfab\.com\/3d-models\/[^\/]+-([a-f0-9]{32})/i,
+                /\/([a-f0-9]{32})/i
+            ];
+            
+            for (const pattern of patterns) {
+                const match = input.match(pattern);
+                if (match) {
+                    return match[1];
+                }
+            }
+            
+            return null;
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        function loadModel(modelId) {
+            updateStatus('モデルを読み込んでいます...');
+            
+            const iframe = document.getElementById('viewer');
+            const iframeUrl = `https://sketchfab.com/models/${modelId}/embed?autostart=1&preload=1&ui_infos=0&ui_controls=1&ui_stop=0`;
+            
+            iframe.src = iframeUrl;
+            iframe.classList.add('active');
+            
+            // Sketchfab API初期化
+            const client = new window.Sketchfab(iframe);
+            
+            client.init(modelId, {
+                success: function onSuccess(api) {
+                    sketchfabAPI = api;
+                    api.start();
+                    
+                    api.addEventListener('viewerready', function() {
+                        isViewerReady = true;
+                        updateStatus('モデルの読み込みが完了しました！');
+                        document.getElementById('vrBtn').disabled = false;
+                        document.getElementById('hideBtn').style.display = 'inline-block';
+                    });
+                    
+                    updateStatus('Sketchfab APIに接続しました');
+                },
+                error: function onError() {
+                    updateStatus('エラー: モデルの読み込みに失敗しました');
+                }
+            });
+        }
+
+        function enterVR() {
+            if (sketchfabAPI && isViewerReady) {
+                // SketchfabのVR機能を起動
+                sketchfabAPI.setEnableVR(1);
+                updateStatus('VRモードを起動しています...');
+            } else {
+                updateStatus('エラー: モデルがまだ読み込まれていません');
+            }
+        }
+
+        document.getElementById('loadBtn').addEventListener('click', () => {
+            const input = document.getElementById('modelInput').value;
+            const modelId = extractModelId(input);
+            
+            if (modelId) {
+                loadModel(modelId);
+            } else {
+                updateStatus('エラー: 有効なSketchfab URLまたはモデルIDを入力してください');
+            }
+        });
+
+        document.getElementById('vrBtn').addEventListener('click', () => {
+            enterVR();
+        });
+
+        document.getElementById('hideBtn').addEventListener('click', () => {
+            document.getElementById('ui').style.display = 'none';
+            document.getElementById('controls').classList.add('active');
+        });
+
+        document.getElementById('showUiBtn').addEventListener('click', () => {
+            document.getElementById('ui').style.display = 'block';
+            document.getElementById('controls').classList.remove('active');
+        });
+
+        document.getElementById('exitBtn').addEventListener('click', () => {
+            document.getElementById('viewer').classList.remove('active');
+            document.getElementById('viewer').src = '';
+            document.getElementById('ui').style.display = 'block';
+            document.getElementById('controls').classList.remove('active');
+            document.getElementById('vrBtn').disabled = true;
+            document.getElementById('hideBtn').style.display = 'none';
+            isViewerReady = false;
+            sketchfabAPI = null;
+            updateStatus('');
+        });
+
+        // Sketchfab API スクリプトを読み込む
+        const script = document.createElement('script');
+        script.src = 'https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js';
+        document.head.appendChild(script);
+    </script>
+</body>
+</html>
