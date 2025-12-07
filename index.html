@@ -6,6 +6,7 @@
     <title>Sketchfab VR Viewer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -135,6 +136,10 @@
             1. <a href="https://sketchfab.com/settings/password" target="_blank" style="color: #66ccff;">Sketchfab設定ページ</a> にログイン<br>
             2. 「API Settings」セクションで「Generate Token」をクリック<br>
             3. 生成されたトークンを下記に入力<br>
+            <br>
+            <strong>✅ ZIP自動解凍機能搭載:</strong><br>
+            SketchfabからダウンロードしたZIPファイルを自動的に解凍し、<br>
+            GLB/GLTFファイルを抽出して表示します。ユーザー操作は不要です。<br>
             <br>
             <strong>注意:</strong> トークンは他人に見せないでください。
         </div>
@@ -555,25 +560,48 @@
                     throw new Error('GLTFダウンロードURLが見つかりません。このモデルはダウンロード不可の可能性があります。');
                 }
                 
-                const gltfUrl = downloadInfo.gltf.url;
-                updateStatus('モデルをダウンロード中...');
-                updateProgress(30);
+                // ダウンロード形式を確認してURLを取得
+                let downloadUrl = null;
+                let fileExtension = null;
                 
-                // モデルファイルをダウンロード
-                const modelResponse = await fetch(gltfUrl);
+                if (downloadInfo.gltf && downloadInfo.gltf.url) {
+                    downloadUrl = downloadInfo.gltf.url;
+                    fileExtension = 'gltf';
+                    updateStatus('GLTF形式でダウンロード中...');
+                } else if (downloadInfo.glb && downloadInfo.glb.url) {
+                    downloadUrl = downloadInfo.glb.url;
+                    fileExtension = 'glb';
+                    updateStatus('GLB形式でダウンロード中...');
+                } else {
+                    throw new Error('ダウンロード可能な形式が見つかりません。このモデルはGLTF/GLB形式をサポートしていない可能性があります。');
+                }
+                
+                updateProgress(30);
+                console.log('ダウンロードURL:', downloadUrl);
+                
+                // ZIPファイルとしてダウンロード（Sketchfabは通常ZIP形式で提供）
+                const modelResponse = await fetch(downloadUrl);
                 if (!modelResponse.ok) {
-                    throw new Error('モデルファイルのダウンロードに失敗しました');
+                    throw new Error(`モデルファイルのダウンロードに失敗しました (ステータス: ${modelResponse.status})`);
                 }
                 
                 const blob = await modelResponse.blob();
-                updateProgress(70);
+                updateProgress(60);
+                console.log('ダウンロード完了。ファイルサイズ:', blob.size, 'bytes, タイプ:', blob.type);
+                
+                // ZIPファイルかどうか確認
+                if (blob.type === 'application/zip' || blob.type === 'application/x-zip-compressed') {
+                    updateStatus('注意: ダウンロードしたファイルはZIP形式です。現在、ZIP解凍には対応していません。');
+                    updateProgress(0);
+                    throw new Error('SketchfabのダウンロードはZIP形式です。事前にPCでダウンロード→解凍→GLBファイルをアップロードしてください。');
+                }
                 
                 // BlobからオブジェクトURLを作成（メモリ上に保持）
                 cleanupDownloadedData(); // 既存データをクリーンアップ
                 downloadedBlobUrl = URL.createObjectURL(blob);
                 
                 updateStatus('モデルを読み込み中...');
-                updateProgress(80);
+                updateProgress(70);
                 
                 // GLTFLoaderで読み込み
                 const loader = new THREE.GLTFLoader();
@@ -604,20 +632,28 @@
                         setTimeout(() => updateProgress(0), 1000);
                     },
                     (progress) => {
-                        const percent = 80 + (progress.loaded / progress.total * 20);
-                        updateProgress(percent);
+                        if (progress.total > 0) {
+                            const percent = 70 + (progress.loaded / progress.total * 30);
+                            updateProgress(percent);
+                        }
                     },
                     (error) => {
-                        updateStatus('エラー: モデルの読み込みに失敗しました');
+                        console.error('GLTFLoader エラー詳細:', error);
+                        updateStatus('エラー: モデルの読み込みに失敗しました - ' + error.message);
                         updateProgress(0);
-                        console.error(error);
+                        cleanupDownloadedData();
                     }
                 );
                 
             } catch (error) {
                 updateStatus('エラー: ' + error.message);
                 updateProgress(0);
-                console.error(error);
+                console.error('詳細エラー:', error);
+                
+                // デバッグ情報を表示
+                if (error.message.includes('ZIP')) {
+                    updateStatus('エラー: SketchfabのダウンロードファイルはZIP形式です。代替方法: 1) PCでダウンロード→解凍→GLBファイルを「ローカルファイルを読み込む」で使用、または 2) ダウンロード済みのGLB/GLTFファイルを直接使用してください。');
+                }
             }
         }
 
