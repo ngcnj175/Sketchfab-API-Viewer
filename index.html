@@ -41,7 +41,7 @@
             margin-bottom: 5px;
             font-size: 14px;
         }
-        input[type="text"], input[type="password"] {
+        input[type="text"] {
             width: 100%;
             max-width: 600px;
             padding: 10px;
@@ -90,11 +90,11 @@
             font-size: 13px;
             line-height: 1.6;
         }
-        .warning {
+        .success {
             margin-top: 15px;
             padding: 15px;
-            background: rgba(0,200,100,0.2);
-            border: 2px solid rgba(0,200,100,0.5);
+            background: rgba(0,200,100,0.3);
+            border: 2px solid rgba(0,200,100,0.6);
             border-radius: 5px;
             font-size: 14px;
             line-height: 1.6;
@@ -127,21 +127,12 @@
 </head>
 <body>
     <div id="ui">
-        <h1>🥽 Sketchfab Auto-Download VR Viewer</h1>
+        <h1>🥽 Sketchfab VR Viewer (セキュア版)</h1>
         
-        <div class="warning">
-            <strong>✅ APIトークンについて:</strong><br>
-            添付画像の赤枠内の文字列が<strong>正しいAPIトークン</strong>です！<br>
-            そのまま下記の入力欄にコピー＆ペーストしてください。<br>
-            <br>
-            <strong>✅ ZIP自動解凍機能搭載:</strong><br>
-            SketchfabからダウンロードしたZIPファイルを自動的に解凍し、<br>
-            GLB/GLTFファイルを抽出して表示します。ユーザー操作は不要です。
-        </div>
-
-        <div class="input-group">
-            <label>Sketchfab API トークン（必須）:</label>
-            <input type="password" id="apiToken" placeholder="画像の赤枠内の文字列を貼り付け">
+        <div class="success">
+            <strong>✅ セキュリティ強化済み！</strong><br>
+            APIトークンはサーバー側で安全に管理されています。<br>
+            このアプリは誰でも自由に使用できます。APIトークンの入力は不要です。
         </div>
 
         <div class="input-group">
@@ -166,12 +157,10 @@
 
         <div class="info">
             <strong>使い方:</strong><br>
-            1. 上記の入力欄にAPIトークンをペースト（画像の赤枠内の文字列）<br>
-            2. SketchfabのモデルURLを入力<br>
-            3. 「Sketchfabから自動ダウンロード＆表示」をクリック<br>
-            4. 自動的にZIPダウンロード→解凍→表示<br>
-            5. VRモードで表示ボタンをクリック<br>
-            6. ページを閉じるとデータは自動削除<br>
+            1. SketchfabのモデルURLを入力（APIトークン不要！）<br>
+            2. 「Sketchfabから自動ダウンロード＆表示」をクリック<br>
+            3. 自動的にZIPダウンロード→解凍→表示<br>
+            4. VRモードで表示ボタンをクリック<br>
             <br>
             <strong>VRコントローラー操作:</strong><br>
             【右コントローラー】<br>
@@ -187,12 +176,17 @@
             • 両グリップ同時押し: 両手の距離で拡大/縮小<br>
             <br>
             <strong>ダウンロード可能なモデル例:</strong><br>
-            • <a href="https://sketchfab.com/search?features=downloadable&type=models" target="_blank" style="color: #66ccff;">ダウンロード可能モデル一覧</a>
+            • <a href="https://sketchfab.com/search?features=downloadable&type=models" target="_blank" style="color: #66ccff;">ダウンロード可能モデル一覧</a><br>
+            • Astronaut: e1439c0427c84077bcaa233283ba0e5e<br>
+            • Low Poly Mill: 16b8c0ce85764d0c9c89abae60404abd
         </div>
     </div>
     <div id="container"></div>
 
     <script>
+        // Cloudflare Worker URL（APIトークンはここに含まれていません）
+        const WORKER_URL = 'https://sketchfab-proxy.ngcnj175.workers.dev';
+
         let scene, camera, renderer, model, gridHelper;
         let controllers = [];
         let isDarkMode = true;
@@ -509,45 +503,37 @@
             }
         }
 
-        async function downloadAndLoadSketchfabModel(modelId, apiToken) {
+        async function downloadAndLoadSketchfabModel(modelId) {
             updateStatus('Sketchfabモデル情報を取得中...');
             updateProgress(10);
             
             try {
-                // モデル情報を取得
-                const infoResponse = await fetch(`https://api.sketchfab.com/v3/models/${modelId}`, {
-                    headers: {
-                        'Authorization': `Token ${apiToken}`
-                    }
-                });
+                // Cloudflare Worker経由でモデル情報を取得（APIトークン不要）
+                const infoResponse = await fetch(`${WORKER_URL}/?modelId=${modelId}&action=info`);
                 
                 if (!infoResponse.ok) {
-                    throw new Error('モデル情報の取得に失敗しました。APIトークンを確認してください。');
+                    const errorData = await infoResponse.json();
+                    throw new Error(errorData.error || 'モデル情報の取得に失敗しました');
                 }
                 
                 const modelInfo = await infoResponse.json();
                 updateStatus(`モデル「${modelInfo.name}」のダウンロード準備中...`);
                 updateProgress(20);
                 
-                // ダウンロードURLを取得
-                const downloadResponse = await fetch(`https://api.sketchfab.com/v3/models/${modelId}/download`, {
-                    headers: {
-                        'Authorization': `Token ${apiToken}`
-                    }
-                });
+                // Cloudflare Worker経由でダウンロードURLを取得
+                const downloadResponse = await fetch(`${WORKER_URL}/?modelId=${modelId}&action=download`);
                 
                 if (!downloadResponse.ok) {
-                    const error = await downloadResponse.json();
+                    const errorData = await downloadResponse.json();
                     if (downloadResponse.status === 403) {
                         throw new Error('このモデルはダウンロードできません。ダウンロード可能なモデルを選択してください。');
                     }
-                    throw new Error('ダウンロードURLの取得に失敗: ' + (error.detail || '不明なエラー'));
+                    throw new Error(errorData.error || 'ダウンロードURLの取得に失敗しました');
                 }
                 
                 const downloadInfo = await downloadResponse.json();
                 console.log('ダウンロード情報:', downloadInfo);
                 
-                // ダウンロード形式を確認してURLを取得
                 let downloadUrl = null;
                 
                 if (downloadInfo.gltf && downloadInfo.gltf.url) {
@@ -563,7 +549,6 @@
                 updateProgress(30);
                 console.log('ダウンロードURL:', downloadUrl);
                 
-                // ZIPファイルをダウンロード
                 updateStatus('ZIPファイルをダウンロード中...');
                 const zipResponse = await fetch(downloadUrl);
                 if (!zipResponse.ok) {
@@ -574,18 +559,15 @@
                 updateProgress(50);
                 console.log('ZIPダウンロード完了。ファイルサイズ:', zipBlob.size, 'bytes');
                 
-                // ZIPファイルを解凍
                 updateStatus('ZIPファイルを解凍中...');
                 const zip = await JSZip.loadAsync(zipBlob);
                 updateProgress(60);
                 console.log('ZIP解凍完了。ファイル一覧:', Object.keys(zip.files));
                 
-                // GLBまたはGLTFファイルを探す
                 let modelFile = null;
                 let modelFileName = null;
                 let isGLB = false;
                 
-                // まずGLBファイルを探す（優先 - 自己完結型）
                 for (const fileName in zip.files) {
                     if (fileName.toLowerCase().endsWith('.glb') && !zip.files[fileName].dir) {
                         modelFile = zip.files[fileName];
@@ -596,7 +578,6 @@
                     }
                 }
                 
-                // GLBが見つからない場合はGLTFを探す
                 if (!modelFile) {
                     for (const fileName in zip.files) {
                         if (fileName.toLowerCase().endsWith('.gltf') && !zip.files[fileName].dir) {
@@ -616,7 +597,6 @@
                 updateStatus(`モデルファイル "${modelFileName}" を抽出中...`);
                 updateProgress(70);
                 
-                // GLBの場合（自己完結型）
                 if (isGLB) {
                     const modelData = await modelFile.async('arraybuffer');
                     const modelBlob = new Blob([modelData], { type: 'model/gltf-binary' });
@@ -630,20 +610,15 @@
                     updateProgress(80);
                     
                     loadGLTFModel(downloadedBlobUrl, modelInfo);
-                } 
-                // GLTFの場合（外部ファイル参照の可能性あり）
-                else {
+                } else {
                     updateStatus('GLTF形式を検出。関連ファイルを抽出中...');
                     
-                    // GLTFファイルの内容を読み取り
                     let gltfText = await modelFile.async('text');
                     const gltfJson = JSON.parse(gltfText);
                     
-                    // 必要な外部ファイル（.bin, テクスチャなど）を抽出
                     const baseDir = modelFileName.includes('/') ? modelFileName.substring(0, modelFileName.lastIndexOf('/') + 1) : '';
                     const filesNeeded = new Map();
                     
-                    // buffers (.bin ファイル)
                     if (gltfJson.buffers) {
                         for (const buffer of gltfJson.buffers) {
                             if (buffer.uri && !buffer.uri.startsWith('data:')) {
@@ -654,7 +629,6 @@
                         }
                     }
                     
-                    // images (テクスチャファイル)
                     if (gltfJson.images) {
                         for (const image of gltfJson.images) {
                             if (image.uri && !image.uri.startsWith('data:')) {
@@ -665,7 +639,6 @@
                         }
                     }
                     
-                    // 外部ファイルを抽出してBlob URLに変換
                     for (const [uri, path] of filesNeeded.entries()) {
                         const file = zip.files[path];
                         if (file && !file.dir) {
@@ -673,7 +646,6 @@
                             const blob = new Blob([data]);
                             const blobUrl = URL.createObjectURL(blob);
                             
-                            // GLTFのURIをBlob URLに置き換え
                             const oldUri = `"${uri}"`;
                             const newUri = `"${blobUrl}"`;
                             gltfText = gltfText.replace(oldUri, newUri);
@@ -684,7 +656,6 @@
                         }
                     }
                     
-                    // 修正されたGLTFをBlobとして保存
                     const modifiedGltfBlob = new Blob([gltfText], { type: 'model/gltf+json' });
                     
                     cleanupDownloadedData();
@@ -787,80 +758,4 @@
                 );
                 
             } catch (error) {
-                updateStatus('エラー: ' + error.message);
-                console.error(error);
-            }
-        }
-
-        document.getElementById('loadBtn').addEventListener('click', () => {
-            const apiToken = document.getElementById('apiToken').value.trim();
-            const input = document.getElementById('urlInput').value;
-            const modelId = extractModelId(input);
-            
-            if (!apiToken) {
-                updateStatus('エラー: APIトークンを入力してください（画像の赤枠内の文字列）');
-                return;
-            }
-            
-            if (modelId) {
-                downloadAndLoadSketchfabModel(modelId, apiToken);
-            } else {
-                updateStatus('エラー: 有効なSketchfab URLまたはモデルIDを入力してください');
-            }
-        });
-
-        document.getElementById('loadFileBtn').addEventListener('click', () => {
-            const fileInput = document.getElementById('fileInput');
-            const file = fileInput.files[0];
-            
-            if (file) {
-                loadLocalFile(file);
-            } else {
-                updateStatus('エラー: ファイルを選択してください');
-            }
-        });
-
-        document.getElementById('fileInput').addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                loadLocalFile(file);
-            }
-        });
-
-        document.getElementById('vrBtn').addEventListener('click', async () => {
-            if (!navigator.xr) {
-                updateStatus('エラー: WebXRがサポートされていません');
-                return;
-            }
-            
-            try {
-                const supported = await navigator.xr.isSessionSupported('immersive-vr');
-                if (!supported) {
-                    updateStatus('エラー: VRモードがサポートされていません');
-                    return;
-                }
-                
-                vrSession = await navigator.xr.requestSession('immersive-vr', {
-                    optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
-                });
-                
-                vrSession.addEventListener('end', () => {
-                    document.getElementById('ui').style.display = 'block';
-                    vrSession = null;
-                    updateStatus('VR表示を解除しました');
-                });
-                
-                await renderer.xr.setSession(vrSession);
-                document.getElementById('ui').style.display = 'none';
-                updateStatus('VRモードで表示中...');
-                
-            } catch (error) {
-                updateStatus('VRセッションの開始に失敗: ' + error.message);
-                console.error(error);
-            }
-        });
-
-        init();
-    </script>
-</body>
-</html>
+                updateStatus('エ
