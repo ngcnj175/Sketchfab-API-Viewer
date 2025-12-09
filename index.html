@@ -4,9 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sketchfab VR Viewer</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -123,6 +120,11 @@
             width: 0%;
             transition: width 0.3s;
         }
+        #loading {
+            margin-top: 10px;
+            color: #66ccff;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -135,6 +137,8 @@
             このアプリは誰でも自由に使用できます。APIトークンの入力は不要です。
         </div>
 
+        <div id="loading">ライブラリを読み込み中...</div>
+
         <div class="input-group">
             <label>Sketchfab モデルURL または モデルID:</label>
             <input type="text" id="urlInput" placeholder="https://sketchfab.com/3d-models/... または モデルID">
@@ -145,8 +149,8 @@
             <input type="file" id="fileInput" accept=".glb,.gltf">
         </div>
 
-        <button id="loadBtn">Sketchfabから自動ダウンロード＆表示</button>
-        <button id="loadFileBtn">ローカルファイルを読み込む</button>
+        <button id="loadBtn" disabled>Sketchfabから自動ダウンロード＆表示</button>
+        <button id="loadFileBtn" disabled>ローカルファイルを読み込む</button>
         <button id="vrBtn" disabled>VRモードで表示</button>
 
         <div class="progress-bar" id="progressBar">
@@ -183,8 +187,11 @@
     </div>
     <div id="container"></div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
     <script>
-        // Cloudflare Worker URL（APIトークンはここに含まれていません）
+        // Cloudflare Worker URL
         const WORKER_URL = 'https://sketchfab-proxy.ngcnj175.workers.dev';
 
         let scene, camera, renderer, model, gridHelper;
@@ -205,6 +212,63 @@
         let initialGripDistance = 0;
         let initialScale = 1;
         let downloadedBlobUrl = null;
+        let GLTFLoader = null;
+
+        // GLTFLoaderを動的に読み込む
+        function loadGLTFLoader() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://threejs.org/examples/js/loaders/GLTFLoader.js';
+                script.onload = () => {
+                    console.log('GLTFLoader loaded successfully');
+                    GLTFLoader = THREE.GLTFLoader;
+                    resolve();
+                };
+                script.onerror = () => {
+                    console.error('Failed to load GLTFLoader');
+                    reject(new Error('GLTFLoader failed to load'));
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        // 初期化関数
+        async function initialize() {
+            try {
+                document.getElementById('loading').textContent = 'Three.jsを確認中...';
+                
+                if (typeof THREE === 'undefined') {
+                    throw new Error('Three.jsが読み込まれていません');
+                }
+                
+                document.getElementById('loading').textContent = 'JSZipを確認中...';
+                
+                if (typeof JSZip === 'undefined') {
+                    throw new Error('JSZipが読み込まれていません');
+                }
+                
+                document.getElementById('loading').textContent = 'GLTFLoaderを読み込み中...';
+                
+                await loadGLTFLoader();
+                
+                document.getElementById('loading').textContent = '3Dシーンを初期化中...';
+                
+                init();
+                
+                document.getElementById('loading').textContent = '✅ 準備完了！';
+                document.getElementById('loadBtn').disabled = false;
+                document.getElementById('loadFileBtn').disabled = false;
+                
+                setTimeout(() => {
+                    document.getElementById('loading').style.display = 'none';
+                }, 2000);
+                
+            } catch (error) {
+                document.getElementById('loading').textContent = '❌ エラー: ' + error.message;
+                document.getElementById('loading').style.color = '#ff6666';
+                console.error('Initialization error:', error);
+            }
+        }
 
         function init() {
             const container = document.getElementById('container');
@@ -508,7 +572,6 @@
             updateProgress(10);
             
             try {
-                // Cloudflare Worker経由でモデル情報を取得（APIトークン不要）
                 const infoResponse = await fetch(`${WORKER_URL}/?modelId=${modelId}&action=info`);
                 
                 if (!infoResponse.ok) {
@@ -520,7 +583,6 @@
                 updateStatus(`モデル「${modelInfo.name}」のダウンロード準備中...`);
                 updateProgress(20);
                 
-                // Cloudflare Worker経由でダウンロードURLを取得
                 const downloadResponse = await fetch(`${WORKER_URL}/?modelId=${modelId}&action=download`);
                 
                 if (!downloadResponse.ok) {
@@ -547,22 +609,19 @@
                 }
                 
                 updateProgress(30);
-                console.log('ダウンロードURL:', downloadUrl);
                 
                 updateStatus('ZIPファイルをダウンロード中...');
                 const zipResponse = await fetch(downloadUrl);
                 if (!zipResponse.ok) {
-                    throw new Error(`ZIPファイルのダウンロードに失敗しました (ステータス: ${zipResponse.status})`);
+                    throw new Error(`ZIPファイルのダウンロードに失敗しました`);
                 }
                 
                 const zipBlob = await zipResponse.blob();
                 updateProgress(50);
-                console.log('ZIPダウンロード完了。ファイルサイズ:', zipBlob.size, 'bytes');
                 
                 updateStatus('ZIPファイルを解凍中...');
                 const zip = await JSZip.loadAsync(zipBlob);
                 updateProgress(60);
-                console.log('ZIP解凍完了。ファイル一覧:', Object.keys(zip.files));
                 
                 let modelFile = null;
                 let modelFileName = null;
@@ -573,7 +632,6 @@
                         modelFile = zip.files[fileName];
                         modelFileName = fileName;
                         isGLB = true;
-                        console.log('GLBファイル発見:', fileName);
                         break;
                     }
                 }
@@ -584,14 +642,13 @@
                             modelFile = zip.files[fileName];
                             modelFileName = fileName;
                             isGLB = false;
-                            console.log('GLTFファイル発見:', fileName);
                             break;
                         }
                     }
                 }
                 
                 if (!modelFile) {
-                    throw new Error('ZIP内にGLBまたはGLTFファイルが見つかりませんでした。ファイル一覧: ' + Object.keys(zip.files).join(', '));
+                    throw new Error('ZIP内にGLBまたはGLTFファイルが見つかりませんでした');
                 }
                 
                 updateStatus(`モデルファイル "${modelFileName}" を抽出中...`);
@@ -600,8 +657,6 @@
                 if (isGLB) {
                     const modelData = await modelFile.async('arraybuffer');
                     const modelBlob = new Blob([modelData], { type: 'model/gltf-binary' });
-                    
-                    console.log('GLBファイル抽出完了。サイズ:', modelBlob.size, 'bytes');
                     
                     cleanupDownloadedData();
                     downloadedBlobUrl = URL.createObjectURL(modelBlob);
@@ -623,7 +678,6 @@
                         for (const buffer of gltfJson.buffers) {
                             if (buffer.uri && !buffer.uri.startsWith('data:')) {
                                 const bufferPath = baseDir + buffer.uri;
-                                console.log('必要なバッファファイル:', bufferPath);
                                 filesNeeded.set(buffer.uri, bufferPath);
                             }
                         }
@@ -633,7 +687,6 @@
                         for (const image of gltfJson.images) {
                             if (image.uri && !image.uri.startsWith('data:')) {
                                 const imagePath = baseDir + image.uri;
-                                console.log('必要な画像ファイル:', imagePath);
                                 filesNeeded.set(image.uri, imagePath);
                             }
                         }
@@ -649,10 +702,6 @@
                             const oldUri = `"${uri}"`;
                             const newUri = `"${blobUrl}"`;
                             gltfText = gltfText.replace(oldUri, newUri);
-                            
-                            console.log('ファイル抽出:', uri, '→', blobUrl);
-                        } else {
-                            console.warn('参照ファイルが見つかりません:', path);
                         }
                     }
                     
@@ -675,7 +724,7 @@
         }
 
         function loadGLTFModel(url, modelInfo) {
-            const loader = new THREE.GLTFLoader();
+            const loader = new GLTFLoader();
             loader.load(
                 url,
                 (gltf) => {
@@ -709,8 +758,8 @@
                     }
                 },
                 (error) => {
-                    console.error('GLTFLoader エラー詳細:', error);
-                    updateStatus('エラー: モデルの読み込みに失敗しました - ' + error.message);
+                    console.error('GLTFLoader エラー:', error);
+                    updateStatus('エラー: モデルの読み込みに失敗しました');
                     updateProgress(0);
                     cleanupDownloadedData();
                 }
@@ -722,7 +771,7 @@
             
             try {
                 const url = URL.createObjectURL(file);
-                const loader = new THREE.GLTFLoader();
+                const loader = new GLTFLoader();
                 
                 loader.load(
                     url,
@@ -758,4 +807,75 @@
                 );
                 
             } catch (error) {
-                updateStatus('エ
+                updateStatus('エラー: ' + error.message);
+                console.error(error);
+            }
+        }
+
+        document.getElementById('loadBtn').addEventListener('click', () => {
+            const input = document.getElementById('urlInput').value;
+            const modelId = extractModelId(input);
+            
+            if (modelId) {
+                downloadAndLoadSketchfabModel(modelId);
+            } else {
+                updateStatus('エラー: 有効なSketchfab URLまたはモデルIDを入力してください');
+            }
+        });
+
+        document.getElementById('loadFileBtn').addEventListener('click', () => {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (file) {
+                loadLocalFile(file);
+            } else {
+                updateStatus('エラー: ファイルを選択してください');
+            }
+        });
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                loadLocalFile(file);
+            }
+        });
+
+        document.getElementById('vrBtn').addEventListener('click', async () => {
+            if (!navigator.xr) {
+                updateStatus('エラー: WebXRがサポートされていません');
+                return;
+            }
+            
+            try {
+                const supported = await navigator.xr.isSessionSupported('immersive-vr');
+                if (!supported) {
+                    updateStatus('エラー: VRモードがサポートされていません');
+                    return;
+                }
+                
+                vrSession = await navigator.xr.requestSession('immersive-vr', {
+                    optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+                });
+                
+                vrSession.addEventListener('end', () => {
+                    document.getElementById('ui').style.display = 'block';
+                    vrSession = null;
+                    updateStatus('VR表示を解除しました');
+                });
+                
+                await renderer.xr.setSession(vrSession);
+                document.getElementById('ui').style.display = 'none';
+                updateStatus('VRモードで表示中...');
+                
+            } catch (error) {
+                updateStatus('VRセッションの開始に失敗: ' + error.message);
+                console.error(error);
+            }
+        });
+
+        // ページ読み込み時に初期化
+        window.addEventListener('load', initialize);
+    </script>
+</body>
+</html>
