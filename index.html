@@ -176,7 +176,7 @@
         <div id="loading">ライブラリを読み込み中...</div>
 
         <div class="input-group">
-            <label>Sketchfab / Google Drive / Dropbox URL、またはモデルID:</label>
+            <label>Sketchfab / Dropbox URL、またはモデルID:</label>
             <div class="url-input-wrapper">
                 <input type="text" id="urlInput" placeholder="URLまたはモデルIDを入力">
                 <button id="pasteBtn" class="btn-paste" disabled>📋 貼り付け</button>
@@ -200,9 +200,15 @@
 
         <div class="info">
             <strong>使い方:</strong><br>
-            1. Sketchfab / Google Drive / Dropbox のURL、またはローカルファイルを選択<br>
+            1. Sketchfab / Dropbox のURL、またはローカルファイルを選択<br>
             2. 「読み込む」をクリック（ローカルファイルは選択時に自動読み込み）<br>
             3. VRモードで表示ボタンをクリック<br>
+            <br>
+            <strong>⚠️ Google Driveについて:</strong><br>
+            Google DriveはCORS制限により直接読み込みできません。<br>
+            代わりに以下の方法をご利用ください:<br>
+            • ファイルをダウンロードしてローカルから読み込む<br>
+            • Dropboxを使用する<br>
             <br>
             <strong>対応形式:</strong><br>
             GLB, GLTF, OBJ, STL, FBX, ZIP（自動解凍）<br>
@@ -246,6 +252,7 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fflate@0.7.4/umd/index.js"></script>
     
     <script>
         const WORKER_URL = 'https://sketchfab-proxy.ngcnj175.workers.dev';
@@ -479,17 +486,36 @@
         function toggleControls() {
             isControlsVisible = !isControlsVisible;
             const controlsEl = document.getElementById('vrControls');
+            
+            console.log('操作表示トグル:', isControlsVisible);
+            
             if (isControlsVisible) {
                 controlsEl.classList.add('visible');
+                controlsEl.style.display = 'block';
             } else {
                 controlsEl.classList.remove('visible');
+                controlsEl.style.display = 'none';
             }
+            
+            updateStatus(isControlsVisible ? '操作方法: 表示中' : '操作方法: 非表示');
         }
 
         function togglePassthrough() {
             isPassthrough = !isPassthrough;
-            scene.background = isPassthrough ? null : (isDarkMode ? new THREE.Color(0x1a1a1a) : new THREE.Color(0xe0e0e0));
+            
+            if (isPassthrough) {
+                // パススルーON: 背景を透明に
+                renderer.xr.enabled = true;
+                scene.background = null;
+                renderer.setClearColor(0x000000, 0);
+            } else {
+                // パススルーOFF: 背景色を復元
+                scene.background = isDarkMode ? new THREE.Color(0x1a1a1a) : new THREE.Color(0xe0e0e0);
+                renderer.setClearColor(0x000000, 1);
+            }
+            
             updateStatus(isPassthrough ? 'パススルー: ON' : 'パススルー: OFF');
+            console.log('パススルーモード:', isPassthrough);
         }
 
         function toggleTexture() {
@@ -678,8 +704,6 @@
         function detectUrlType(url) {
             if (url.includes('sketchfab.com') || /^[a-f0-9]{32}$/i.test(url)) {
                 return 'sketchfab';
-            } else if (url.includes('drive.google.com') || url.includes('googleapis.com')) {
-                return 'googledrive';
             } else if (url.includes('dropbox.com') || url.includes('dropboxusercontent.com')) {
                 return 'dropbox';
             } else if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -689,12 +713,7 @@
         }
 
         function convertToDirectLink(url, type) {
-            if (type === 'googledrive') {
-                const fileIdMatch = url.match(/[-\w]{25,}/);
-                if (fileIdMatch) {
-                    return `https://drive.google.com/uc?export=download&id=${fileIdMatch[0]}`;
-                }
-            } else if (type === 'dropbox') {
+            if (type === 'dropbox') {
                 return url.replace('www.dropbox.com', 'dl.dropboxusercontent.com').replace('?dl=0', '');
             }
             return url;
@@ -737,6 +756,10 @@
             updateProgress(0);
         }
 
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            clearAll();
+        });
+
         async function loadFromUrl(url) {
             const urlType = detectUrlType(url);
             
@@ -747,7 +770,7 @@
                 } else {
                     updateStatus('エラー: 有効なSketchfab URLまたはモデルIDを入力してください');
                 }
-            } else if (urlType === 'googledrive' || urlType === 'dropbox' || urlType === 'direct') {
+            } else if (urlType === 'dropbox' || urlType === 'direct') {
                 const directUrl = convertToDirectLink(url, urlType);
                 await loadFromDirectUrl(directUrl);
             } else {
