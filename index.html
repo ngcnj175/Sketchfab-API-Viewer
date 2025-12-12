@@ -40,9 +40,8 @@
         }
         .url-input-wrapper {
             display: flex;
-            gap: 5px;
+            gap: 10px;
             max-width: 800px;
-            align-items: center;
         }
         input[type="text"] {
             flex: 1;
@@ -53,11 +52,6 @@
             background: #2a2a2a;
             color: #fff;
             box-sizing: border-box;
-        }
-        .btn-icon {
-            padding: 10px 15px;
-            min-width: auto;
-            margin: 0;
         }
         input[type="file"] {
             padding: 10px;
@@ -152,17 +146,16 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.95);
+            background: rgba(0, 0, 0, 0.9);
             padding: 30px;
             border-radius: 10px;
-            border: 3px solid #0066cc;
+            border: 2px solid #0066cc;
             max-width: 500px;
             display: none;
             z-index: 10000;
-            pointer-events: auto;
         }
         #vrControls.visible {
-            display: block !important;
+            display: block;
         }
         #vrControls h2 {
             margin-top: 0;
@@ -174,14 +167,19 @@
     <div id="ui">
         <h1>🥽 Sketchfab VR Viewer (拡張版)</h1>
         
+        <div class="success">
+            <strong>✅ セキュリティ強化済み！</strong><br>
+            APIトークンはサーバー側で安全に管理されています。<br>
+            このアプリは誰でも自由に使用できます。
+        </div>
+
         <div id="loading">ライブラリを読み込み中...</div>
 
         <div class="input-group">
             <label>Sketchfab / Dropbox URL、またはモデルID:</label>
             <div class="url-input-wrapper">
-                <button id="pasteBtn" class="btn-paste btn-icon" disabled>📋</button>
                 <input type="text" id="urlInput" placeholder="URLまたはモデルIDを入力">
-                <button id="loadBtn" class="btn-icon" disabled>📥</button>
+                <button id="pasteBtn" class="btn-paste" disabled>📋 貼り付け</button>
             </div>
         </div>
         
@@ -190,6 +188,7 @@
             <input type="file" id="fileInput" accept=".glb,.gltf,.obj,.stl,.fbx,.zip">
         </div>
 
+        <button id="loadBtn" disabled>📥 読み込む</button>
         <button id="clearBtn" class="btn-clear" disabled>🗑️ クリア</button>
         <button id="vrBtn" disabled>🥽 VRモードで表示</button>
 
@@ -204,6 +203,12 @@
             1. Sketchfab / Dropbox のURL、またはローカルファイルを選択<br>
             2. 「読み込む」をクリック（ローカルファイルは選択時に自動読み込み）<br>
             3. VRモードで表示ボタンをクリック<br>
+            <br>
+            <strong>⚠️ Google Driveについて:</strong><br>
+            Google DriveはCORS制限により直接読み込みできません。<br>
+            代わりに以下の方法をご利用ください:<br>
+            • ファイルをダウンロードしてローカルから読み込む<br>
+            • Dropboxを使用する<br>
             <br>
             <strong>対応形式:</strong><br>
             GLB, GLTF, OBJ, STL, FBX, ZIP（自動解凍）<br>
@@ -374,7 +379,7 @@
             const container = document.getElementById('container');
             
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x000000);
+            scene.background = new THREE.Color(0x1a1a1a);
             
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(0, 1.6, 0);
@@ -482,19 +487,14 @@
             isControlsVisible = !isControlsVisible;
             const controlsEl = document.getElementById('vrControls');
             
+            console.log('操作表示トグル:', isControlsVisible);
+            
             if (isControlsVisible) {
-                controlsEl.style.display = 'block';
                 controlsEl.classList.add('visible');
-                // VRセッション内で表示されるように強制
-                setTimeout(() => {
-                    controlsEl.style.visibility = 'visible';
-                    controlsEl.style.opacity = '1';
-                }, 10);
+                controlsEl.style.display = 'block';
             } else {
-                controlsEl.style.display = 'none';
                 controlsEl.classList.remove('visible');
-                controlsEl.style.visibility = 'hidden';
-                controlsEl.style.opacity = '0';
+                controlsEl.style.display = 'none';
             }
             
             updateStatus(isControlsVisible ? '操作方法: 表示中' : '操作方法: 非表示');
@@ -504,16 +504,18 @@
             isPassthrough = !isPassthrough;
             
             if (isPassthrough) {
-                // パススルーON: 背景を完全に透明に
+                // パススルーON: 背景を透明に
+                renderer.xr.enabled = true;
                 scene.background = null;
-                renderer.setClearAlpha(0);
+                renderer.setClearColor(0x000000, 0);
             } else {
                 // パススルーOFF: 背景色を復元
-                scene.background = isDarkMode ? new THREE.Color(0x000000) : new THREE.Color(0xe0e0e0);
-                renderer.setClearAlpha(1);
+                scene.background = isDarkMode ? new THREE.Color(0x1a1a1a) : new THREE.Color(0xe0e0e0);
+                renderer.setClearColor(0x000000, 1);
             }
             
             updateStatus(isPassthrough ? 'パススルー: ON' : 'パススルー: OFF');
+            console.log('パススルーモード:', isPassthrough);
         }
 
         function toggleTexture() {
@@ -554,7 +556,7 @@
         function toggleBackgroundColor() {
             isDarkMode = !isDarkMode;
             if (!isPassthrough) {
-                scene.background = isDarkMode ? new THREE.Color(0x000000) : new THREE.Color(0xe0e0e0);
+                scene.background = isDarkMode ? new THREE.Color(0x1a1a1a) : new THREE.Color(0xe0e0e0);
             }
             updateStatus(isDarkMode ? '背景: ダーク' : '背景: ライト');
         }
@@ -741,11 +743,17 @@
         }
 
         function clearAll() {
-            // モデルは削除しない（VRで使用するため）
-            // UI要素のみクリア
+            if (model) {
+                scene.remove(model);
+                model = null;
+            }
             document.getElementById('urlInput').value = '';
             document.getElementById('fileInput').value = '';
-            updateStatus('入力欄をクリアしました');
+            document.getElementById('vrBtn').disabled = true;
+            document.getElementById('clearBtn').disabled = true;
+            cleanupAllData();
+            updateStatus('クリアしました');
+            updateProgress(0);
         }
 
         document.getElementById('clearBtn').addEventListener('click', () => {
@@ -1129,11 +1137,6 @@
                 return;
             }
             
-            if (!model) {
-                updateStatus('エラー: モデルが読み込まれていません');
-                return;
-            }
-            
             try {
                 const supported = await navigator.xr.isSessionSupported('immersive-vr');
                 if (!supported) {
@@ -1141,35 +1144,24 @@
                     return;
                 }
                 
-                updateStatus('VRセッションを開始しています...');
-                
-                // パススルー機能を明示的にリクエスト（Pico 4対応）
                 vrSession = await navigator.xr.requestSession('immersive-vr', {
-                    requiredFeatures: ['local-floor'],
-                    optionalFeatures: ['bounded-floor', 'hand-tracking', 'layers']
+                    optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
                 });
                 
                 vrSession.addEventListener('end', () => {
                     document.getElementById('ui').style.display = 'block';
-                    const controlsEl = document.getElementById('vrControls');
-                    controlsEl.classList.remove('visible');
-                    controlsEl.style.display = 'none';
-                    isControlsVisible = false;
+                    document.getElementById('vrControls').classList.remove('visible');
                     vrSession = null;
                     updateStatus('VR表示を解除しました');
                 });
                 
                 await renderer.xr.setSession(vrSession);
-                
-                // UI非表示はセッション確立後
                 document.getElementById('ui').style.display = 'none';
                 updateStatus('VRモードで表示中...');
                 
             } catch (error) {
                 updateStatus('VRセッションの開始に失敗: ' + error.message);
-                console.error('VR Error:', error);
-                // エラー時もUIは表示したまま
-                document.getElementById('ui').style.display = 'block';
+                console.error(error);
             }
         });
 
