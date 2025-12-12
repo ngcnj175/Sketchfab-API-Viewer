@@ -40,8 +40,9 @@
         }
         .url-input-wrapper {
             display: flex;
-            gap: 10px;
+            gap: 5px;
             max-width: 800px;
+            align-items: center;
         }
         input[type="text"] {
             flex: 1;
@@ -52,6 +53,11 @@
             background: #2a2a2a;
             color: #fff;
             box-sizing: border-box;
+        }
+        .btn-icon {
+            padding: 10px 15px;
+            min-width: auto;
+            margin: 0;
         }
         input[type="file"] {
             padding: 10px;
@@ -173,8 +179,9 @@
         <div class="input-group">
             <label>Sketchfab / Dropbox URL、またはモデルID:</label>
             <div class="url-input-wrapper">
+                <button id="pasteBtn" class="btn-paste btn-icon" disabled>📋</button>
                 <input type="text" id="urlInput" placeholder="URLまたはモデルIDを入力">
-                <button id="pasteBtn" class="btn-paste" disabled>📋 貼り付け</button>
+                <button id="loadBtn" class="btn-icon" disabled>📥</button>
             </div>
         </div>
         
@@ -183,7 +190,6 @@
             <input type="file" id="fileInput" accept=".glb,.gltf,.obj,.stl,.fbx,.zip">
         </div>
 
-        <button id="loadBtn" disabled>📥 読み込む</button>
         <button id="clearBtn" class="btn-clear" disabled>🗑️ クリア</button>
         <button id="vrBtn" disabled>🥽 VRモードで表示</button>
 
@@ -735,17 +741,11 @@
         }
 
         function clearAll() {
-            if (model) {
-                scene.remove(model);
-                model = null;
-            }
+            // モデルは削除しない（VRで使用するため）
+            // UI要素のみクリア
             document.getElementById('urlInput').value = '';
             document.getElementById('fileInput').value = '';
-            document.getElementById('vrBtn').disabled = true;
-            document.getElementById('clearBtn').disabled = true;
-            cleanupAllData();
-            updateStatus('クリアしました');
-            updateProgress(0);
+            updateStatus('入力欄をクリアしました');
         }
 
         document.getElementById('clearBtn').addEventListener('click', () => {
@@ -1129,12 +1129,19 @@
                 return;
             }
             
+            if (!model) {
+                updateStatus('エラー: モデルが読み込まれていません');
+                return;
+            }
+            
             try {
                 const supported = await navigator.xr.isSessionSupported('immersive-vr');
                 if (!supported) {
                     updateStatus('エラー: VRモードがサポートされていません');
                     return;
                 }
+                
+                updateStatus('VRセッションを開始しています...');
                 
                 // パススルー機能を明示的にリクエスト（Pico 4対応）
                 vrSession = await navigator.xr.requestSession('immersive-vr', {
@@ -1144,29 +1151,25 @@
                 
                 vrSession.addEventListener('end', () => {
                     document.getElementById('ui').style.display = 'block';
-                    document.getElementById('vrControls').classList.remove('visible');
-                    document.getElementById('vrControls').style.display = 'none';
+                    const controlsEl = document.getElementById('vrControls');
+                    controlsEl.classList.remove('visible');
+                    controlsEl.style.display = 'none';
+                    isControlsVisible = false;
                     vrSession = null;
                     updateStatus('VR表示を解除しました');
                 });
                 
                 await renderer.xr.setSession(vrSession);
                 
-                // パススルーレイヤーを試みる（Pico 4用）
-                if (vrSession.enabledFeatures && vrSession.enabledFeatures.includes('layers')) {
-                    try {
-                        const glBinding = new XRWebGLBinding(vrSession, renderer.getContext());
-                    } catch (e) {
-                        console.log('XRWebGLBinding not available');
-                    }
-                }
-                
+                // UI非表示はセッション確立後
                 document.getElementById('ui').style.display = 'none';
                 updateStatus('VRモードで表示中...');
                 
             } catch (error) {
                 updateStatus('VRセッションの開始に失敗: ' + error.message);
-                console.error(error);
+                console.error('VR Error:', error);
+                // エラー時もUIは表示したまま
+                document.getElementById('ui').style.display = 'block';
             }
         });
 
