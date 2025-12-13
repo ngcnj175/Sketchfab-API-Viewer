@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sketchfab VR Viewer</title>
+    <title>Direct VR Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fflate@0.7.4/umd/index.js"></script>
     <style>
         body {
             margin: 0;
@@ -27,8 +30,14 @@
             height: 100vh;
         }
         h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+        .subtitle {
             margin: 0 0 20px 0;
-            font-size: 24px;
+            font-size: 14px;
+            color: #66ccff;
+            line-height: 1.5;
         }
         .input-group {
             margin-bottom: 15px;
@@ -40,8 +49,9 @@
         }
         .url-input-wrapper {
             display: flex;
-            gap: 10px;
+            gap: 5px;
             max-width: 800px;
+            align-items: center;
         }
         input[type="text"] {
             flex: 1;
@@ -76,6 +86,11 @@
             background: #555;
             cursor: not-allowed;
         }
+        .btn-icon {
+            padding: 10px 15px;
+            min-width: auto;
+            margin: 0;
+        }
         .btn-paste {
             background: #00aa66;
         }
@@ -101,15 +116,6 @@
             background: rgba(0,100,200,0.2);
             border-radius: 5px;
             font-size: 13px;
-            line-height: 1.6;
-        }
-        .success {
-            margin-top: 15px;
-            padding: 15px;
-            background: rgba(0,200,100,0.3);
-            border: 2px solid rgba(0,200,100,0.6);
-            border-radius: 5px;
-            font-size: 14px;
             line-height: 1.6;
         }
         canvas {
@@ -141,36 +147,14 @@
             color: #66ccff;
             font-size: 14px;
         }
-        #vrControls {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.9);
-            padding: 30px;
-            border-radius: 10px;
-            border: 2px solid #0066cc;
-            max-width: 500px;
-            display: none;
-            z-index: 10000;
-        }
-        #vrControls.visible {
-            display: block;
-        }
-        #vrControls h2 {
-            margin-top: 0;
-            color: #66ccff;
-        }
     </style>
 </head>
 <body>
     <div id="ui">
-        <h1>🥽 Sketchfab VR Viewer (拡張版)</h1>
-        
-        <div class="success">
-            <strong>✅ セキュリティ強化済み！</strong><br>
-            APIトークンはサーバー側で安全に管理されています。<br>
-            このアプリは誰でも自由に使用できます。
+        <h1>Direct VR Viewer</h1>
+        <div class="subtitle">
+            リンク貼るだけ、即VR！<br>
+            Sketchfab、Dropbox、URLコピペで気軽にVR閲覧
         </div>
 
         <div id="loading">ライブラリを読み込み中...</div>
@@ -178,8 +162,9 @@
         <div class="input-group">
             <label>Sketchfab / Dropbox URL、またはモデルID:</label>
             <div class="url-input-wrapper">
+                <button id="pasteBtn" class="btn-paste btn-icon" disabled>📋</button>
                 <input type="text" id="urlInput" placeholder="URLまたはモデルIDを入力">
-                <button id="pasteBtn" class="btn-paste" disabled>📋 貼り付け</button>
+                <button id="loadBtn" class="btn-icon" disabled>📥</button>
             </div>
         </div>
         
@@ -188,9 +173,8 @@
             <input type="file" id="fileInput" accept=".glb,.gltf,.obj,.stl,.fbx,.zip">
         </div>
 
-        <button id="loadBtn" disabled>📥 読み込む</button>
-        <button id="clearBtn" class="btn-clear" disabled>🗑️ クリア</button>
-        <button id="vrBtn" disabled>🥽 VRモードで表示</button>
+        <button id="clearBtn" class="btn-clear" disabled>クリア</button>
+        <button id="vrBtn" disabled>VRモードで表示</button>
 
         <div class="progress-bar" id="progressBar">
             <div class="progress-fill" id="progressFill"></div>
@@ -199,17 +183,6 @@
         <div id="status"></div>
 
         <div class="info">
-            <strong>使い方:</strong><br>
-            1. Sketchfab / Dropbox のURL、またはローカルファイルを選択<br>
-            2. 「読み込む」をクリック（ローカルファイルは選択時に自動読み込み）<br>
-            3. VRモードで表示ボタンをクリック<br>
-            <br>
-            <strong>⚠️ Google Driveについて:</strong><br>
-            Google DriveはCORS制限により直接読み込みできません。<br>
-            代わりに以下の方法をご利用ください:<br>
-            • ファイルをダウンロードしてローカルから読み込む<br>
-            • Dropboxを使用する<br>
-            <br>
             <strong>対応形式:</strong><br>
             GLB, GLTF, OBJ, STL, FBX, ZIP（自動解凍）<br>
             <br>
@@ -218,12 +191,10 @@
             • 右スティック上下: X軸回転 / 左右: Y軸回転<br>
             • Aボタン: テクスチャ表示ON/OFF<br>
             • Bボタン: VR表示解除<br>
-            • 右トリガー: パススルーモードON/OFF<br>
             【左コントローラー】<br>
             • 左スティック上下: 奥行き移動 / 左右: 横移動<br>
             • Xボタン: グリッド線表示ON/OFF<br>
             • Yボタン: 背景色反転<br>
-            • 左トリガー: 操作方法表示ON/OFF<br>
             【両手操作】<br>
             • 片方グリップ: オブジェクトを掴んで移動<br>
             • 両グリップ同時押し: 両手の距離で拡大/縮小
@@ -231,29 +202,6 @@
     </div>
     <div id="container"></div>
 
-    <div id="vrControls">
-        <h2>🎮 VRコントローラー操作</h2>
-        <p><strong>右コントローラー:</strong><br>
-        • スティック上下: X軸回転<br>
-        • スティック左右: Y軸回転<br>
-        • Aボタン: テクスチャON/OFF<br>
-        • Bボタン: VR終了<br>
-        • トリガー: パススルーON/OFF</p>
-        <p><strong>左コントローラー:</strong><br>
-        • スティック上下: 奥行き移動<br>
-        • スティック左右: 横移動<br>
-        • Xボタン: グリッド線ON/OFF<br>
-        • Yボタン: 背景色反転<br>
-        • トリガー: この表示ON/OFF</p>
-        <p><strong>両手:</strong><br>
-        • 片グリップ: 掴んで移動<br>
-        • 両グリップ: 距離で拡大縮小</p>
-    </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/fflate@0.7.4/umd/index.js"></script>
-    
     <script>
         const WORKER_URL = 'https://sketchfab-proxy.ngcnj175.workers.dev';
 
@@ -262,8 +210,6 @@
         let isDarkMode = true;
         let isTextureVisible = true;
         let isGridVisible = true;
-        let isPassthrough = false;
-        let isControlsVisible = false;
         let modelScale = 1;
         let modelPosition = new THREE.Vector3(0, 1.5, -2);
         let modelRotationX = 0;
@@ -292,45 +238,37 @@
                     if (loadedCount === totalLoaders) resolve();
                 }
 
-                // GLTFLoader
                 const gltfScript = document.createElement('script');
                 gltfScript.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js';
                 gltfScript.onload = () => {
                     GLTFLoader = THREE.GLTFLoader;
-                    console.log('GLTFLoader loaded');
                     checkComplete();
                 };
                 gltfScript.onerror = () => reject(new Error('GLTFLoader failed'));
                 document.head.appendChild(gltfScript);
 
-                // OBJLoader
                 const objScript = document.createElement('script');
                 objScript.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js';
                 objScript.onload = () => {
                     OBJLoader = THREE.OBJLoader;
-                    console.log('OBJLoader loaded');
                     checkComplete();
                 };
                 objScript.onerror = () => reject(new Error('OBJLoader failed'));
                 document.head.appendChild(objScript);
 
-                // STLLoader
                 const stlScript = document.createElement('script');
                 stlScript.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js';
                 stlScript.onload = () => {
                     STLLoader = THREE.STLLoader;
-                    console.log('STLLoader loaded');
                     checkComplete();
                 };
                 stlScript.onerror = () => reject(new Error('STLLoader failed'));
                 document.head.appendChild(stlScript);
 
-                // FBXLoader
                 const fbxScript = document.createElement('script');
                 fbxScript.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js';
                 fbxScript.onload = () => {
                     FBXLoader = THREE.FBXLoader;
-                    console.log('FBXLoader loaded');
                     checkComplete();
                 };
                 fbxScript.onerror = () => reject(new Error('FBXLoader failed'));
@@ -412,8 +350,6 @@
                 const controller = renderer.xr.getController(i);
                 controller.userData.index = i;
                 
-                controller.addEventListener('selectstart', onSelectStart);
-                controller.addEventListener('selectend', onSelectEnd);
                 controller.addEventListener('squeezestart', onSqueezeStart);
                 controller.addEventListener('squeezeend', onSqueezeEnd);
                 
@@ -433,20 +369,6 @@
                 
                 controllers.push({ controller, grip });
             }
-        }
-
-        function onSelectStart(event) {
-            const controller = event.target;
-            if (controller.userData.index === 0) {
-                // 左トリガー: 操作方法表示
-                toggleControls();
-            } else {
-                // 右トリガー: パススルー
-                togglePassthrough();
-            }
-        }
-
-        function onSelectEnd(event) {
         }
 
         function onSqueezeStart(event) {
@@ -481,41 +403,6 @@
                 isDragging = false;
                 dragController = null;
             }
-        }
-
-        function toggleControls() {
-            isControlsVisible = !isControlsVisible;
-            const controlsEl = document.getElementById('vrControls');
-            
-            console.log('操作表示トグル:', isControlsVisible);
-            
-            if (isControlsVisible) {
-                controlsEl.classList.add('visible');
-                controlsEl.style.display = 'block';
-            } else {
-                controlsEl.classList.remove('visible');
-                controlsEl.style.display = 'none';
-            }
-            
-            updateStatus(isControlsVisible ? '操作方法: 表示中' : '操作方法: 非表示');
-        }
-
-        function togglePassthrough() {
-            isPassthrough = !isPassthrough;
-            
-            if (isPassthrough) {
-                // パススルーON: 背景を透明に
-                renderer.xr.enabled = true;
-                scene.background = null;
-                renderer.setClearColor(0x000000, 0);
-            } else {
-                // パススルーOFF: 背景色を復元
-                scene.background = isDarkMode ? new THREE.Color(0x1a1a1a) : new THREE.Color(0xe0e0e0);
-                renderer.setClearColor(0x000000, 1);
-            }
-            
-            updateStatus(isPassthrough ? 'パススルー: ON' : 'パススルー: OFF');
-            console.log('パススルーモード:', isPassthrough);
         }
 
         function toggleTexture() {
@@ -555,9 +442,7 @@
 
         function toggleBackgroundColor() {
             isDarkMode = !isDarkMode;
-            if (!isPassthrough) {
-                scene.background = isDarkMode ? new THREE.Color(0x1a1a1a) : new THREE.Color(0xe0e0e0);
-            }
+            scene.background = isDarkMode ? new THREE.Color(0x1a1a1a) : new THREE.Color(0xe0e0e0);
             updateStatus(isDarkMode ? '背景: ダーク' : '背景: ライト');
         }
 
@@ -650,6 +535,9 @@
                     previousControllerPosition
                 );
                 
+                // 移動距離を2倍に
+                deltaPosition.multiplyScalar(2);
+                
                 modelPosition.add(deltaPosition);
                 model.position.copy(modelPosition);
                 
@@ -662,7 +550,6 @@
                 vrSession.end();
                 vrSession = null;
                 document.getElementById('ui').style.display = 'block';
-                document.getElementById('vrControls').classList.remove('visible');
                 updateStatus('VR表示を解除しました');
             }
         }
@@ -739,7 +626,6 @@
         function cleanupAllData() {
             downloadedBlobUrls.forEach(url => URL.revokeObjectURL(url));
             downloadedBlobUrls = [];
-            console.log('すべてのダウンロードデータを削除しました');
         }
 
         function clearAll() {
@@ -755,10 +641,6 @@
             updateStatus('クリアしました');
             updateProgress(0);
         }
-
-        document.getElementById('clearBtn').addEventListener('click', () => {
-            clearAll();
-        });
 
         async function loadFromUrl(url) {
             const urlType = detectUrlType(url);
@@ -871,7 +753,6 @@
                 updateProgress(60);
                 
                 const zip = await JSZip.loadAsync(zipBlob);
-                console.log('ZIP解凍完了。ファイル一覧:', Object.keys(zip.files));
                 
                 let modelFile = null;
                 let modelFileName = null;
@@ -885,7 +766,6 @@
                             modelFile = zip.files[fileName];
                             modelFileName = fileName;
                             fileType = ext;
-                            console.log(`${ext.toUpperCase()}ファイル発見:`, fileName);
                             break;
                         }
                     }
@@ -1150,7 +1030,6 @@
                 
                 vrSession.addEventListener('end', () => {
                     document.getElementById('ui').style.display = 'block';
-                    document.getElementById('vrControls').classList.remove('visible');
                     vrSession = null;
                     updateStatus('VR表示を解除しました');
                 });
