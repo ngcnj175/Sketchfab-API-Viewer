@@ -548,10 +548,16 @@
         function exitVR() {
             if (vrSession) {
                 vrSession.end();
-                vrSession = null;
-                document.getElementById('ui').style.display = 'block';
-                updateStatus('VR表示を解除しました');
             }
+        }
+
+        function onVRSessionEnd() {
+            document.getElementById('ui').style.display = 'block';
+            vrSession = null;
+            updateStatus('VR表示を解除しました');
+            
+            // レンダラーを強制的に更新
+            renderer.render(scene, camera);
         }
 
         function render() {
@@ -629,21 +635,45 @@
         }
 
         function clearAll() {
+            // モデルをシーンから削除
             if (model) {
+                // モデルの全てのメッシュとマテリアルを破棄
+                model.traverse((child) => {
+                    if (child.geometry) {
+                        child.geometry.dispose();
+                    }
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(material => material.dispose());
+                        } else {
+                            child.material.dispose();
+                        }
+                    }
+                });
+                
                 scene.remove(model);
                 model = null;
             }
+            
+            // 入力欄をクリア
             document.getElementById('urlInput').value = '';
             document.getElementById('fileInput').value = '';
+            
+            // ボタンを無効化
             document.getElementById('vrBtn').disabled = true;
             document.getElementById('clearBtn').disabled = true;
+            
+            // ダウンロードデータをクリア
             cleanupAllData();
             
-            // モデルの回転と位置をリセット
+            // モデルの状態をリセット
             modelRotationX = 0;
             modelRotationY = 0;
             modelPosition.set(0, 1.5, -2);
             modelScale = 1;
+            
+            // 画面を強制的に再描画
+            renderer.render(scene, camera);
             
             updateStatus('クリアしました');
             updateProgress(0);
@@ -1035,11 +1065,7 @@
                     optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
                 });
                 
-                vrSession.addEventListener('end', () => {
-                    document.getElementById('ui').style.display = 'block';
-                    vrSession = null;
-                    updateStatus('VR表示を解除しました');
-                });
+                vrSession.addEventListener('end', onVRSessionEnd);
                 
                 await renderer.xr.setSession(vrSession);
                 document.getElementById('ui').style.display = 'none';
