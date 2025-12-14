@@ -638,6 +638,13 @@
             document.getElementById('vrBtn').disabled = true;
             document.getElementById('clearBtn').disabled = true;
             cleanupAllData();
+            
+            // モデルの回転と位置をリセット
+            modelRotationX = 0;
+            modelRotationY = 0;
+            modelPosition.set(0, 1.5, -2);
+            modelScale = 1;
+            
             updateStatus('クリアしました');
             updateProgress(0);
         }
